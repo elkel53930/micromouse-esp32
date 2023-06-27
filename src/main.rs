@@ -3,7 +3,17 @@
 
 use esp_backtrace as _;
 use esp_println::println;
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, timer::TimerGroup, Rtc};
+use hal::{
+    clock::ClockControl,
+    peripherals::Peripherals,
+    prelude::*,
+    timer::TimerGroup,
+    Rtc,
+    gpio::IO,
+    Delay,
+};
+
+
 #[entry]
 fn main() -> ! {
     let peripherals = Peripherals::take();
@@ -29,5 +39,22 @@ fn main() -> ! {
     wdt1.disable();
     println!("Hello world!");
 
-    loop {}
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    let mut led_g = io.pins.gpio19.into_push_pull_output();
+    let mut led_b = io.pins.gpio20.into_push_pull_output();
+    let mut led_r = io.pins.gpio21.into_push_pull_output();
+
+    let mut delay = Delay::new(&clocks);
+
+    led_r.set_low().unwrap();
+    led_g.set_low().unwrap();
+    led_b.set_low().unwrap();
+
+    loop {
+        led_r.toggle().unwrap();
+        led_g.toggle().unwrap();
+        led_b.toggle().unwrap();
+        delay.delay_ms(500u32);
+    }
 }

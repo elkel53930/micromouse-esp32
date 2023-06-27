@@ -1,0 +1,3 @@
+[submodule "mm_maze_solver"]
+	path = mm_maze_solver
+	url = git@github.com:elkel53930/mm_maze_solver.git

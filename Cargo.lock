@@ -300,6 +300,7 @@ dependencies = [
  "esp-backtrace",
  "esp-println",
  "esp32s3-hal",
+ "mm_maze_solver",
 ]
 
 [[package]]
@@ -310,6 +311,10 @@ checksum = "359c4820413be7706e93999171652e140578384f85faac14cb22d350bd0fbabf"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "mm_maze_solver"
+version = "0.1.0"
 
 [[package]]
 name = "mutex-trait"
