@@ -37,6 +37,8 @@ fn main() -> ! {
     rtc.rwdt.disable();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    // Encoder
     let sclk = io.pins.gpio11;
     let miso = io.pins.gpio12;
     let mosi = io.pins.gpio13;
@@ -56,9 +58,32 @@ fn main() -> ! {
         &clocks,
     );
 
+
+    /* IMU */
+    let sclk_imu = io.pins.gpio8;
+    let miso_imu = io.pins.gpio6;
+    let mosi_imu = io.pins.gpio7;
+    let mut cs_imu = io.pins.gpio9.into_push_pull_output();
+
+    cs_imu.set_high().unwrap();
+
+    let mut spi_imu = Spi::new_no_cs(
+        peripherals.SPI3,
+        sclk_imu,
+        mosi_imu,
+        miso_imu,
+        100u32.kHz(),
+        SpiMode::Mode3,
+        &mut system.peripheral_clock_control,
+        &clocks,
+    );
+
+
     let mut delay = Delay::new(&clocks);
 
     loop {
+        delay.delay_ms(250u32);
+        // Encoder
         let mut data = [0x7f, 0xfe];
         cs_r.set_low().unwrap();
         delay.delay_ms(1u32);
@@ -66,8 +91,19 @@ fn main() -> ! {
         delay.delay_ms(1u32);
         cs_r.set_high().unwrap();
         let enc = (data[0] as u16)*256 + (data[1] as u16) & 0x3fff;
-        println!("{}", enc);
+        println!("enc {}", enc);
 
-        delay.delay_ms(250u32);
+        // IMU
+//        let mut data = [0xa6, 0xff, 0xff]; // Gyro yaw
+        let mut data = [0x8f, 0xff]; // who am i
+        cs_imu.set_low().unwrap();
+        delay.delay_ms(1u32);
+        spi_imu.transfer(&mut data).unwrap();
+        delay.delay_ms(1u32);
+        cs_imu.set_high().unwrap();
+//        let enc = (data[0] as u16)*256 + (data[1] as u16) & 0x3fff;
+//        println!("{}", enc);
+        println!("imu {:x?}", data);
+
     }
 }
