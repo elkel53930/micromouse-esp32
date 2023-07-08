@@ -11,11 +11,9 @@ use hal::{
     Rtc,
     gpio::IO,
     Delay,
-    adc::{AdcConfig, Attenuation, ADC, ADC1}, peripheral,
     spi::{Spi, SpiMode},
 };
 
-use esp_backtrace as _;
 
 #[entry]
 fn main() -> ! {
@@ -60,18 +58,12 @@ fn main() -> ! {
 
 
     /* IMU */
-    let sclk_imu = io.pins.gpio8;
-    let miso_imu = io.pins.gpio6;
-    let mosi_imu = io.pins.gpio7;
-    let mut cs_imu = io.pins.gpio9.into_push_pull_output();
-
-    cs_imu.set_high().unwrap();
-
-    let mut spi_imu = Spi::new_no_cs(
+    let mut spi_imu = Spi::new(
         peripherals.SPI3,
-        sclk_imu,
-        mosi_imu,
-        miso_imu,
+        io.pins.gpio8,
+        io.pins.gpio7,
+        io.pins.gpio6,
+        io.pins.gpio9,
         100u32.kHz(),
         SpiMode::Mode3,
         &mut system.peripheral_clock_control,
@@ -80,6 +72,14 @@ fn main() -> ! {
 
 
     let mut delay = Delay::new(&clocks);
+
+    // Enable access to registers
+    let mut data = [0x01, 0x80];
+    spi_imu.transfer(&mut data).unwrap();
+
+    // IMU : Set Gyro to high-performance mode
+    let mut data = [0x11, 0xac];
+    spi_imu.transfer(&mut data).unwrap();
 
     loop {
         delay.delay_ms(250u32);
@@ -94,16 +94,14 @@ fn main() -> ! {
         println!("enc {}", enc);
 
         // IMU
-//        let mut data = [0xa6, 0xff, 0xff]; // Gyro yaw
-        let mut data = [0x8f, 0xff]; // who am i
-        cs_imu.set_low().unwrap();
-        delay.delay_ms(1u32);
+        let mut data = [0xa6, 0xff, 0xff]; // Gyro yaw
         spi_imu.transfer(&mut data).unwrap();
-        delay.delay_ms(1u32);
-        cs_imu.set_high().unwrap();
-//        let enc = (data[0] as u16)*256 + (data[1] as u16) & 0x3fff;
-//        println!("{}", enc);
-        println!("imu {:x?}", data);
+        println!("imu {}", concatenate_u8_to_i16(data[2], data[1]));
 
     }
+}
+
+fn concatenate_u8_to_i16(a: u8, b: u8) -> i16 {
+    let concatenated = ((a as i16) << 8) | (b as i16);
+    concatenated
 }
