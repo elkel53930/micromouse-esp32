@@ -12,6 +12,7 @@ use hal::{
     gpio::IO,
     Delay,
     spi::{Spi, SpiMode},
+    adc::{AdcConfig, Attenuation, ADC, ADC1},
 };
 
 
@@ -80,6 +81,23 @@ fn main() -> ! {
     // IMU : Set Gyro to high-performance mode
     let mut data = [0x11, 0xac];
     spi_imu.transfer(&mut data).unwrap();
+
+    let analog = peripherals.SENS.split();
+    let mut adc1_config = AdcConfig::new();
+    
+    let mut pin_ls = adc1_config.enable_pin(io.pins.gpio1.into_analog(), Attenuation::Attenuation11dB);
+    let mut pin_lf = adc1_config.enable_pin(io.pins.gpio2.into_analog(), Attenuation::Attenuation11dB);
+    let mut pin_rf = adc1_config.enable_pin(io.pins.gpio3.into_analog(), Attenuation::Attenuation11dB);
+    let mut pin_rs = adc1_config.enable_pin(io.pins.gpio4.into_analog(), Attenuation::Attenuation11dB);
+
+    let mut adc1 = ADC::<ADC1>::adc(analog.adc1, adc1_config).unwrap();
+
+    let ls_value: u16 = nb::block!(adc1.read(&mut pin_ls)).unwrap();
+    let lf_value: u16 = nb::block!(adc1.read(&mut pin_lf)).unwrap();
+    let rf_value: u16 = nb::block!(adc1.read(&mut pin_rf)).unwrap();
+    let rs_value: u16 = nb::block!(adc1.read(&mut pin_rs)).unwrap();
+
+    println!("{}, {}, {}, {}", ls_value, lf_value, rf_value, rs_value);
 
     loop {
         delay.delay_ms(250u32);
