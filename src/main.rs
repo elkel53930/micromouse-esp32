@@ -3,17 +3,57 @@
 
 use esp_backtrace as _;
 use esp_println::println;
-use hal::{
+
+use embedded_hal::adc::{
+    Channel,
+    OneShot,
+};
+
+use esp32s3_hal::{
     clock::ClockControl,
     peripherals::Peripherals,
     prelude::*,
     timer::TimerGroup,
     Rtc,
     gpio::IO,
-    Delay,
-    spi::{Spi, SpiMode},
-    adc::{AdcConfig, Attenuation, ADC, ADC1},
+    adc::{AdcConfig, Attenuation, ADC, ADC1, RegisterAccess, AdcPin},
 };
+
+struct Sensors<SENADC, ANALOG1, ANALOG2> {
+    adc: SENADC,
+    pin1: ANALOG1,
+    pin2: ANALOG2,
+}
+
+impl<SENADC, PIN1, PIN2, ADCI> Sensors<SENADC, AdcPin<PIN1, ADCI>, AdcPin<PIN2, ADCI>>
+    where
+        SENADC: OneShot<ADCI, u16, AdcPin<PIN1, ADCI>>,
+        PIN1: Channel<ADCI, ID = u8>,
+        PIN2: Channel<ADCI, ID = u8>,
+        ADCI: RegisterAccess, {
+    
+    pub fn new( adc: SENADC,
+                pin1: AdcPin<PIN1, ADCI>,
+                pin2: AdcPin<PIN2, ADCI>) -> Self  {
+        Sensors {adc: adc, pin1: pin1, pin2: pin2}
+    }
+
+    pub fn read(&mut self) -> (u16, u16) {
+        let v1 = match nb::block!(self.adc.read(&mut self.pin1)){
+            Ok(value) => value,
+            Err(_) => 0,
+        };
+
+        let v2 = match nb::block!(self.adc.read(&mut self.pin2)){
+// |                                            ---- ^^^^^^^^^^^^^^ expected `&mut AdcPin<PIN1, ADCI>`, found `&mut AdcPin<PIN2, ADCI>`
+// |                                            |
+// |                                            arguments to this method are incorrect
+            Ok(value) => value,
+            Err(_) => 0,
+        };
+        (v1, v2)
+    }
+}
 
 
 #[entry]
@@ -22,8 +62,6 @@ fn main() -> ! {
     let mut system = peripherals.SYSTEM.split();
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
-    // Disable the watchdog timers. For the ESP32-S3, this includes the RTC WDT, and
-    // the TIMG WDT.
     let mut rtc = Rtc::new(peripherals.RTC_CNTL);
     let timer_group0 = TimerGroup::new(
         peripherals.TIMG0,
@@ -37,89 +75,21 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    // Encoder
-    let sclk = io.pins.gpio11;
-    let miso = io.pins.gpio12;
-    let mosi = io.pins.gpio13;
-    let mut cs_r = io.pins.gpio46.into_push_pull_output();
-    let mut cs_l = io.pins.gpio10.into_push_pull_output();
-    cs_r.set_high().unwrap();
-    cs_l.set_high().unwrap();
-
-    let mut spi = Spi::new_no_cs(
-        peripherals.SPI2,
-        sclk,
-        mosi,
-        miso,
-        100u32.kHz(),
-        SpiMode::Mode1,
-        &mut system.peripheral_clock_control,
-        &clocks,
-    );
-
-
-    /* IMU */
-    let mut spi_imu = Spi::new(
-        peripherals.SPI3,
-        io.pins.gpio8,
-        io.pins.gpio7,
-        io.pins.gpio6,
-        io.pins.gpio9,
-        100u32.kHz(),
-        SpiMode::Mode3,
-        &mut system.peripheral_clock_control,
-        &clocks,
-    );
-
-
-    let mut delay = Delay::new(&clocks);
-
-    // Enable access to registers
-    let mut data = [0x01, 0x80];
-    spi_imu.transfer(&mut data).unwrap();
-
-    // IMU : Set Gyro to high-performance mode
-    let mut data = [0x11, 0xac];
-    spi_imu.transfer(&mut data).unwrap();
-
     let analog = peripherals.SENS.split();
-    let mut adc1_config = AdcConfig::new();
-    
-    let mut pin_ls = adc1_config.enable_pin(io.pins.gpio1.into_analog(), Attenuation::Attenuation11dB);
-    let mut pin_lf = adc1_config.enable_pin(io.pins.gpio2.into_analog(), Attenuation::Attenuation11dB);
-    let mut pin_rf = adc1_config.enable_pin(io.pins.gpio3.into_analog(), Attenuation::Attenuation11dB);
-    let mut pin_rs = adc1_config.enable_pin(io.pins.gpio4.into_analog(), Attenuation::Attenuation11dB);
 
+    let mut adc1_config = AdcConfig::new();
+
+    let mut pin1 = adc1_config.enable_pin(io.pins.gpio1.into_analog(), Attenuation::Attenuation11dB);
+    let mut pin2 = adc1_config.enable_pin(io.pins.gpio2.into_analog(), Attenuation::Attenuation11dB);
     let mut adc1 = ADC::<ADC1>::adc(analog.adc1, adc1_config).unwrap();
 
-    let ls_value: u16 = nb::block!(adc1.read(&mut pin_ls)).unwrap();
-    let lf_value: u16 = nb::block!(adc1.read(&mut pin_lf)).unwrap();
-    let rf_value: u16 = nb::block!(adc1.read(&mut pin_rf)).unwrap();
-    let rs_value: u16 = nb::block!(adc1.read(&mut pin_rs)).unwrap();
+    // These two lines can work.
+    let value1: u16 = nb::block!(adc1.read(&mut pin1)).unwrap();
+    let value2: u16 = nb::block!(adc1.read(&mut pin2)).unwrap();
 
-    println!("{}, {}, {}, {}", ls_value, lf_value, rf_value, rs_value);
+    let mut sensors = Sensors::new(adc1, pin1, pin2);
+    let (value1, value2) = sensors.read();
+    println!("{}, {}",value1, value2);
 
-    loop {
-        delay.delay_ms(250u32);
-        // Encoder
-        let mut data = [0x7f, 0xfe];
-        cs_r.set_low().unwrap();
-        delay.delay_ms(1u32);
-        spi.transfer(&mut data).unwrap();
-        delay.delay_ms(1u32);
-        cs_r.set_high().unwrap();
-        let enc = (data[0] as u16)*256 + (data[1] as u16) & 0x3fff;
-        println!("enc {}", enc);
-
-        // IMU
-        let mut data = [0xa6, 0xff, 0xff]; // Gyro yaw
-        spi_imu.transfer(&mut data).unwrap();
-        println!("imu {}", concatenate_u8_to_i16(data[2], data[1]));
-
-    }
-}
-
-fn concatenate_u8_to_i16(a: u8, b: u8) -> i16 {
-    let concatenated = ((a as i16) << 8) | (b as i16);
-    concatenated
+    loop {}
 }
