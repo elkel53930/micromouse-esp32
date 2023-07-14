@@ -10,7 +10,7 @@ pub trait CsPin {
     fn negate(&mut self);
 }
 
-pub trait GpioPin {
+pub trait OutputPin {
     // Set pin high
     fn high(&mut self);
 

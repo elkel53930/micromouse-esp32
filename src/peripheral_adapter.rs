@@ -39,7 +39,7 @@ impl<CS: _embedded_hal_digital_v2_OutputPin> peripheral_traits::CsPin for CS {
     }
 }
 
-impl<PIN: _embedded_hal_digital_v2_OutputPin> peripheral_traits::GpioPin for PIN {
+impl<PIN: _embedded_hal_digital_v2_OutputPin> peripheral_traits::OutputPin for PIN {
     fn low(&mut self) {
         self.set_low().map_err(|_| ()).unwrap();
     }

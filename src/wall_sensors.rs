@@ -1,13 +1,13 @@
 use esp_backtrace as _;
 
 // import periferal_traits
-use crate::peripheral_traits::{AdConverter, GpioPin};
+use crate::peripheral_traits::{AdConverter, OutputPin};
 
 pub struct WallSensors<Ena, Sel0, Sel1, AdcLS, AdcLF, AdcRF, AdcRS>
 where
-    Ena: GpioPin,
-    Sel0: GpioPin,
-    Sel1: GpioPin,
+    Ena: OutputPin,
+    Sel0: OutputPin,
+    Sel1: OutputPin,
     AdcLS: AdConverter,
     AdcLF: AdConverter,
     AdcRF: AdConverter,
@@ -43,9 +43,9 @@ const SEL: [(bool, bool); 4] = [(true, false), (true, true), (false, true), (fal
 impl<Ena, Sel0, Sel1, AdcLF, AdcLS, AdcRF, AdcRS>
     WallSensors<Ena, Sel0, Sel1, AdcLS, AdcLF, AdcRF, AdcRS>
 where
-    Ena: GpioPin,
-    Sel0: GpioPin,
-    Sel1: GpioPin,
+    Ena: OutputPin,
+    Sel0: OutputPin,
+    Sel1: OutputPin,
     AdcLF: AdConverter,
     AdcLS: AdConverter,
     AdcRF: AdConverter,

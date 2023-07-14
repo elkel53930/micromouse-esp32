@@ -1,8 +1,8 @@
 use esp_backtrace as _;
 
-use crate::peripheral_traits::GpioPin;
+use crate::peripheral_traits::OutputPin;
 
-pub struct Led<R: GpioPin, G: GpioPin, B: GpioPin> {
+pub struct Led<R: OutputPin, G: OutputPin, B: OutputPin> {
     red: R,
     green: G,
     blue: B,
@@ -10,9 +10,9 @@ pub struct Led<R: GpioPin, G: GpioPin, B: GpioPin> {
 
 impl<R, G, B> Led<R, G, B>
 where
-    R: GpioPin,
-    G: GpioPin,
-    B: GpioPin,
+    R: OutputPin,
+    G: OutputPin,
+    B: OutputPin,
 {
     pub fn new(red: R, green: G, blue: B) -> Self {
         let mut led = Led {
