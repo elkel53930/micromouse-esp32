@@ -25,6 +25,7 @@ mod peripheral_adapter;
 mod peripheral_traits;
 use peripheral_adapter::GlobalDelay;
 mod wall_sensors;
+mod led;
 use wall_sensors::WALL_SENSOR::{LF, LS, RF, RS};
 
 type Global<T> = Mutex<RefCell<Option<T>>>;
@@ -33,8 +34,7 @@ type ActualImu<'a> =
 type ActualEncoder<'a> = encoder::Encoder<
     Spi<'a, peripherals::SPI2, FullDuplexMode>,
     GpioPin<Output<PushPull>, 46>,
-    GpioPin<Output<PushPull>, 10>,
->;
+    GpioPin<Output<PushPull>, 10>>;
 type ActualWallSensors = wall_sensors::WallSensors<
     GpioPin<Output<PushPull>, 14>,
     GpioPin<Output<PushPull>, 15>,
@@ -42,14 +42,18 @@ type ActualWallSensors = wall_sensors::WallSensors<
     AdcPin<GpioPin<Analog, 1>, ADC1>,
     AdcPin<GpioPin<Analog, 2>, ADC1>,
     AdcPin<GpioPin<Analog, 3>, ADC1>,
-    AdcPin<GpioPin<Analog, 4>, ADC1>,
->;
+    AdcPin<GpioPin<Analog, 4>, ADC1>>;
+type ActualLed = led::Led<
+    GpioPin<Output<PushPull>, 21>,
+    GpioPin<Output<PushPull>, 19>,
+    GpioPin<Output<PushPull>, 20>,>;
 
 static GL_ADC1: Global<ADC<'_, ADC1>> = Mutex::new(RefCell::new(None));
 static GL_DELAY: Global<Delay> = Mutex::new(RefCell::new(None));
 static GL_IMU: Global<ActualImu<'_>> = Mutex::new(RefCell::new(None));
 static GL_ENCODER: Global<ActualEncoder<'_>> = Mutex::new(RefCell::new(None));
 static GL_WALL_SENSORS: Global<ActualWallSensors> = Mutex::new(RefCell::new(None));
+static GL_ED: Global<ActualLed> = Mutex::new(RefCell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -75,6 +79,16 @@ fn main() -> ! {
     rtc.rwdt.disable();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    // LEDs
+    let led = led::Led::new(
+        io.pins.gpio21.into_push_pull_output(),
+        io.pins.gpio19.into_push_pull_output(),
+        io.pins.gpio20.into_push_pull_output(),
+    );
+    with(|cs| {
+        GL_ED.borrow(cs).replace(Some(led));
+    });
 
     // Encoder
     let cs_r = io.pins.gpio46.into_push_pull_output();
@@ -139,6 +153,8 @@ fn main() -> ! {
     with(|cs| {
         GL_WALL_SENSORS.borrow(cs).replace(Some(wall_sensors));
     });
+
+    let mut led_step = 0;
 
     loop {
         // Display wall sensor values
@@ -208,5 +224,10 @@ fn main() -> ! {
                 .unwrap()
                 .delay_ms(250u32);
         });
+
+        with(|cs| {
+            GL_ED.borrow(cs).borrow_mut().as_mut().unwrap().set(led_step < 3, led_step < 2, led_step < 1);
+        });
+        led_step = (led_step + 1) % 4;
     }
 }
