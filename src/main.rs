@@ -7,13 +7,13 @@ use hal::{
     adc::{AdcConfig, AdcPin, Attenuation, ADC, ADC1},
     clock::ClockControl,
     gpio::{Analog, GpioPin, Output, PushPull, IO},
-    peripherals,
-    peripherals::Peripherals,
+    peripherals::{self, Peripherals, TIMG0},
     prelude::*,
     spi::{FullDuplexMode, Spi, SpiMode},
-    timer::TimerGroup,
+    timer::{Timer, Timer0, TimerGroup},
     Rtc,
     Delay,
+    interrupt::{self, Priority},
 };
 
 use core::cell::RefCell;
@@ -53,7 +53,16 @@ static GL_DELAY: Global<Delay> = Mutex::new(RefCell::new(None));
 static GL_IMU: Global<ActualImu<'_>> = Mutex::new(RefCell::new(None));
 static GL_ENCODER: Global<ActualEncoder<'_>> = Mutex::new(RefCell::new(None));
 static GL_WALL_SENSORS: Global<ActualWallSensors> = Mutex::new(RefCell::new(None));
-static GL_ED: Global<ActualLed> = Mutex::new(RefCell::new(None));
+static GL_LED: Global<ActualLed> = Mutex::new(RefCell::new(None));
+static GL_TIMER00: Global<Timer<Timer0<TIMG0>>> = Mutex::new(RefCell::new(None));
+
+const TIMER_INTERVAL: u64 = 1u64; // ms
+
+struct InterruptContext{
+    step: u32,
+}
+
+static INTERRUPT_CONTEXT: Global<InterruptContext> = Mutex::new(RefCell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -61,22 +70,30 @@ fn main() -> ! {
     let mut system = peripherals.SYSTEM.split();
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
-    with(|cs| {
-        GL_DELAY.borrow(cs).replace(Some(Delay::new(&clocks)));
-    });
-
-    // Disable the watchdog timers. For the ESP32-S3, this includes the RTC WDT, and
-    // the TIMG WDT.
-    let mut rtc = Rtc::new(peripherals.RTC_CNTL);
+    // Disable the TIMG watchdog timer.
     let timer_group0 = TimerGroup::new(
         peripherals.TIMG0,
         &clocks,
         &mut system.peripheral_clock_control,
     );
-    let mut wdt = timer_group0.wdt;
+    let mut timer00 = timer_group0.timer0;
+    let mut wdt0 = timer_group0.wdt;
 
-    wdt.disable();
+    let mut rtc = Rtc::new(peripherals.RTC_CNTL);
+
+    // Disable MWDT and RWDT (Watchdog) flash boot protection
+    wdt0.disable();
     rtc.rwdt.disable();
+
+    with(|cs| {
+        GL_DELAY.borrow(cs).replace(Some(Delay::new(&clocks)));
+    });
+
+    // Set timer interrupt
+    with(|cs| {
+        INTERRUPT_CONTEXT.borrow(cs).replace(Some(InterruptContext{step: 0}));
+    });
+    interrupt::enable(peripherals::Interrupt::TG0_T0_LEVEL, Priority::Priority2).unwrap();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
@@ -87,7 +104,7 @@ fn main() -> ! {
         io.pins.gpio20.into_push_pull_output(),
     );
     with(|cs| {
-        GL_ED.borrow(cs).replace(Some(led));
+        GL_LED.borrow(cs).replace(Some(led));
     });
 
     // Encoder
@@ -155,6 +172,15 @@ fn main() -> ! {
     });
 
     let mut led_step = 0;
+
+    // Start timer
+    timer00.start(TIMER_INTERVAL.millis());
+    timer00.listen();
+    with(|cs|   {
+        GL_TIMER00.borrow(cs).replace(Some(timer00));
+    });
+
+    loop{}
 
     loop {
         // Display wall sensor values
@@ -224,10 +250,25 @@ fn main() -> ! {
                 .unwrap()
                 .delay_ms(250u32);
         });
-
-        with(|cs| {
-            GL_ED.borrow(cs).borrow_mut().as_mut().unwrap().set(led_step < 3, led_step < 2, led_step < 1);
-        });
-        led_step = (led_step + 1) % 4;
     }
+}
+
+
+#[interrupt]
+fn TG0_T0_LEVEL() {
+    critical_section::with(|cs| {
+        let mut timer = GL_TIMER00.borrow_ref_mut(cs);
+        let timer = timer.as_mut().unwrap();
+
+        if timer.is_interrupt_set() {
+            GL_LED.borrow(cs).borrow_mut().as_mut().unwrap().set(true, true, true);
+            GL_LED.borrow(cs).borrow_mut().as_mut().unwrap().set(false, true, true);
+            timer.clear_interrupt();
+            timer.start(TIMER_INTERVAL.millis());
+            GL_LED.borrow(cs).borrow_mut().as_mut().unwrap().set(false, false, true);
+            let step = INTERRUPT_CONTEXT.borrow(cs).borrow_mut().as_mut().unwrap().step;
+            INTERRUPT_CONTEXT.borrow(cs).borrow_mut().as_mut().unwrap().step = (step + 1) % 2;
+            GL_LED.borrow(cs).borrow_mut().as_mut().unwrap().set(false, false, false);
+        }
+    });
 }
