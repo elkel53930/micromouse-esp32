@@ -6,16 +6,18 @@ use esp_println::println;
 use hal::{
     adc::{AdcConfig, AdcPin, Attenuation, ADC, ADC1},
     clock::ClockControl,
-    gpio::{Analog, GpioPin, Output, PushPull, IO, Unknown},
+    gpio::{Analog, GpioPin, Output, PushPull, Unknown, IO},
     interrupt::{self, Priority},
+    mcpwm::{
+        operator::{PwmPin, PwmPinConfig},
+        timer::PwmWorkingMode,
+        PeripheralClockConfig, MCPWM,
+    },
     peripherals::{self, Peripherals, MCPWM0, MCPWM1, TIMG0},
     prelude::*,
     spi::{FullDuplexMode, Spi, SpiMode},
     timer::{Timer, Timer0, TimerGroup},
     Delay, Rtc,
-    mcpwm::{
-        operator::{PwmPinConfig, PwmPin}, timer::PwmWorkingMode, PeripheralClockConfig, MCPWM,
-    },
 };
 
 use core::cell::RefCell;
@@ -54,8 +56,10 @@ type ActualLed = led::Led<
     GpioPin<Output<PushPull>, 20>,
 >;
 
-type ActualMotorR<'a> = motor::Motor<PwmPin<'a, GpioPin<Unknown, 36>, MCPWM0, 0, true>, GpioPin<Output<PushPull>, 37>>;
-type ActualMotorL<'a> = motor::Motor<PwmPin<'a, GpioPin<Unknown, 34>, MCPWM1, 0, true>, GpioPin<Output<PushPull>, 35>>;
+type ActualMotorR<'a> =
+    motor::Motor<PwmPin<'a, GpioPin<Unknown, 36>, MCPWM0, 0, true>, GpioPin<Output<PushPull>, 37>>;
+type ActualMotorL<'a> =
+    motor::Motor<PwmPin<'a, GpioPin<Unknown, 34>, MCPWM1, 0, true>, GpioPin<Output<PushPull>, 35>>;
 
 pub static GL_ADC1: Global<ADC<'_, ADC1>> = Mutex::new(RefCell::new(None));
 pub static GL_DELAY: Global<Delay> = Mutex::new(RefCell::new(None));
@@ -99,14 +103,14 @@ fn main() -> ! {
     with(|cs| GL_DELAY.borrow(cs).replace(Some(Delay::new(&clocks))));
 
     // Set timer interrupt
-    with(|cs|
+    with(|cs| {
         INTERRUPT_CONTEXT
             .borrow(cs)
-            .replace(Some(InterruptContext { step: 0 })));
+            .replace(Some(InterruptContext { step: 0 }))
+    });
     interrupt::enable(peripherals::Interrupt::TG0_T0_LEVEL, Priority::Priority2).unwrap();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-
 
     /******** Initialize LEDs ********/
     let led = led::Led::new(
@@ -116,7 +120,6 @@ fn main() -> ! {
     );
     with(|cs| GL_LED.borrow(cs).replace(Some(led)));
 
-    
     /******** Encoders ********/
     let cs_r = io.pins.gpio46.into_push_pull_output();
     let cs_l = io.pins.gpio10.into_push_pull_output();
@@ -154,7 +157,6 @@ fn main() -> ! {
 
     with(|cs| GL_IMU.borrow(cs).replace(Some(imu)));
 
-    
     /******** Initialize Wall sensors ********/
     let analog = peripherals.SENS.split();
     let mut adc1_config = AdcConfig::new();
@@ -182,7 +184,11 @@ fn main() -> ! {
     cwccw_r.set_high().unwrap();
 
     let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40u32.MHz()).unwrap();
-    let mut mcpwm0 = MCPWM::new(peripherals.MCPWM0, clock_cfg, &mut system.peripheral_clock_control);
+    let mut mcpwm0 = MCPWM::new(
+        peripherals.MCPWM0,
+        clock_cfg,
+        &mut system.peripheral_clock_control,
+    );
 
     mcpwm0.operator0.set_timer(&mcpwm0.timer0);
     let mut pwm_r = mcpwm0
@@ -195,7 +201,11 @@ fn main() -> ! {
 
     cwccw_l.set_high().unwrap();
 
-    let mut mcpwm1 = MCPWM::new(peripherals.MCPWM1, clock_cfg, &mut system.peripheral_clock_control);
+    let mut mcpwm1 = MCPWM::new(
+        peripherals.MCPWM1,
+        clock_cfg,
+        &mut system.peripheral_clock_control,
+    );
 
     mcpwm1.operator0.set_timer(&mcpwm1.timer0);
     let mut pwm_l = mcpwm1
@@ -216,10 +226,14 @@ fn main() -> ! {
     pwm_l.set_timestamp(0);
 
     with(|cs| {
-        GL_MOTOR_R.borrow(cs).replace(Some(motor::Motor::new(pwm_r, cwccw_r)));
-        GL_MOTOR_L.borrow(cs).replace(Some(motor::Motor::new(pwm_l, cwccw_l)));
+        GL_MOTOR_R
+            .borrow(cs)
+            .replace(Some(motor::Motor::new(pwm_r, cwccw_r)));
+        GL_MOTOR_L
+            .borrow(cs)
+            .replace(Some(motor::Motor::new(pwm_l, cwccw_l)));
     });
-    
+
     /******** Start interrupt timer ********/
     timer00.start(TIMER_INTERVAL.millis());
     timer00.listen();

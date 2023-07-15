@@ -37,5 +37,4 @@ where
         }
         self.pwm.set_duty(duty as u16);
     }
-
 }

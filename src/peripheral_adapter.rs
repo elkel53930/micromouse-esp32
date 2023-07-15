@@ -5,8 +5,8 @@ use esp_backtrace as _;
 use hal::{
     adc::{AdcPin, ADC1},
     gpio::{Analog, GpioPin, Unknown},
-    peripherals::{self, MCPWM0, MCPWM1},
     mcpwm::operator::PwmPin,
+    peripherals::{self, MCPWM0, MCPWM1},
     prelude::*,
     spi::{FullDuplexMode, Spi},
     Delay,
