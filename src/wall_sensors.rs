@@ -23,7 +23,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum WALL_SENSOR {
+pub enum WallSensor {
     LS = 0,
     LF = 1,
     RF = 2,
@@ -71,7 +71,7 @@ where
         }
     }
 
-    pub fn enable(&mut self, sen: WALL_SENSOR) {
+    pub fn enable(&mut self, sen: WallSensor) {
         if SEL[sen as usize].0 {
             self.led_sel0.high();
         } else {
@@ -89,12 +89,12 @@ where
         self.led_ena.low();
     }
 
-    pub fn read(&mut self, sel: WALL_SENSOR) -> u16 {
+    pub fn read(&mut self, sel: WallSensor) -> u16 {
         match sel {
-            WALL_SENSOR::LS => self.adc_ls.read(),
-            WALL_SENSOR::LF => self.adc_lf.read(),
-            WALL_SENSOR::RF => self.adc_rf.read(),
-            WALL_SENSOR::RS => self.adc_rs.read(),
+            WallSensor::LS => self.adc_ls.read(),
+            WallSensor::LF => self.adc_lf.read(),
+            WallSensor::RF => self.adc_rf.read(),
+            WallSensor::RS => self.adc_rs.read(),
         }
     }
 }

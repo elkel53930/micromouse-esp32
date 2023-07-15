@@ -26,3 +26,7 @@ pub trait Delay {
     fn ms(&mut self, ms: u32);
     fn us(&mut self, us: u32);
 }
+
+pub trait Pwm {
+    fn set_duty(&mut self, duty: u16);
+}

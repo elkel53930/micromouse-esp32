@@ -4,8 +4,9 @@ use critical_section::with;
 use esp_backtrace as _;
 use hal::{
     adc::{AdcPin, ADC1},
-    gpio::{Analog, GpioPin},
-    peripherals,
+    gpio::{Analog, GpioPin, Unknown},
+    peripherals::{self, MCPWM0, MCPWM1},
+    mcpwm::operator::PwmPin,
     prelude::*,
     spi::{FullDuplexMode, Spi},
     Delay,
@@ -118,5 +119,18 @@ impl peripheral_traits::Delay for GlobalDelay {
                 .unwrap()
                 .delay_us(us);
         });
+    }
+}
+
+// Motor PWM
+impl peripheral_traits::Pwm for PwmPin<'_, GpioPin<Unknown, 36>, MCPWM0, 0, true> {
+    fn set_duty(&mut self, duty: u16) {
+        self.set_timestamp(duty);
+    }
+}
+
+impl peripheral_traits::Pwm for PwmPin<'_, GpioPin<Unknown, 34>, MCPWM1, 0, true> {
+    fn set_duty(&mut self, duty: u16) {
+        self.set_timestamp(duty);
     }
 }
