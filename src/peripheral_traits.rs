@@ -30,3 +30,14 @@ pub trait Delay {
 pub trait Pwm {
     fn set_duty(&mut self, duty: u16);
 }
+
+pub trait I2cInterface {
+    fn write_to(&mut self, address: u8, data: &[u8]) -> Result<(), ()>;
+    fn read_from(&mut self, address: u8, data: &mut [u8]) -> Result<(), ()>;
+}
+
+pub trait RandomAccessMemory<Address> {
+    fn write(&mut self, address: Address, data: &[u8]) -> Result<(), ()>;
+    fn read(&mut self, address: Address, data: &mut [u8]) -> Result<(), ()>;
+    fn capacity(&mut self) -> u32;
+}

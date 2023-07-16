@@ -5,8 +5,9 @@ use esp_backtrace as _;
 use hal::{
     adc::{AdcPin, ADC1},
     gpio::{Analog, GpioPin, Unknown},
+    i2c::I2C,
     mcpwm::operator::PwmPin,
-    peripherals::{self, MCPWM0, MCPWM1},
+    peripherals::{self, I2C0, MCPWM0, MCPWM1},
     prelude::*,
     spi::{FullDuplexMode, Spi},
     Delay,
@@ -132,5 +133,18 @@ impl peripheral_traits::Pwm for PwmPin<'_, GpioPin<Unknown, 36>, MCPWM0, 0, true
 impl peripheral_traits::Pwm for PwmPin<'_, GpioPin<Unknown, 34>, MCPWM1, 0, true> {
     fn set_duty(&mut self, duty: u16) {
         self.set_timestamp(duty);
+    }
+}
+
+// I2C interface
+impl peripheral_traits::I2cInterface for I2C<'_, I2C0> {
+    fn write_to(&mut self, address: u8, data: &[u8]) -> Result<(), ()> {
+        self.write(address, data).unwrap();
+        Ok(())
+    }
+
+    fn read_from(&mut self, address: u8, data: &mut [u8]) -> Result<(), ()> {
+        self.read(address, data).unwrap();
+        Ok(())
     }
 }

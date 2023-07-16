@@ -7,13 +7,14 @@ use hal::{
     adc::{AdcConfig, AdcPin, Attenuation, ADC, ADC1},
     clock::ClockControl,
     gpio::{Analog, GpioPin, Output, PushPull, Unknown, IO},
+    i2c::I2C,
     interrupt::{self, Priority},
     mcpwm::{
         operator::{PwmPin, PwmPinConfig},
         timer::PwmWorkingMode,
         PeripheralClockConfig, MCPWM,
     },
-    peripherals::{self, Peripherals, MCPWM0, MCPWM1, TIMG0},
+    peripherals::{self, Peripherals, MCPWM0, MCPWM1, SPI2, SPI3, TIMG0},
     prelude::*,
     spi::{FullDuplexMode, Spi, SpiMode},
     timer::{Timer, Timer0, TimerGroup},
@@ -31,13 +32,15 @@ use peripheral_adapter::GlobalDelay;
 mod led;
 mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
+mod fram;
+mod log;
 mod motor;
 
 type Global<T> = Mutex<RefCell<Option<T>>>;
 type ActualImu<'a> =
-    imu::Imu<Spi<'a, peripherals::SPI3, FullDuplexMode>, GpioPin<Output<PushPull>, 9>, GlobalDelay>;
+    imu::Imu<Spi<'a, SPI3, FullDuplexMode>, GpioPin<Output<PushPull>, 9>, GlobalDelay>;
 type ActualEncoder<'a> = encoder::Encoder<
-    Spi<'a, peripherals::SPI2, FullDuplexMode>,
+    Spi<'a, SPI2, FullDuplexMode>,
     GpioPin<Output<PushPull>, 46>,
     GpioPin<Output<PushPull>, 10>,
 >;
@@ -111,6 +114,26 @@ fn main() -> ! {
     interrupt::enable(peripherals::Interrupt::TG0_T0_LEVEL, Priority::Priority2).unwrap();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    /******** Initialize I2C and Log ********/
+    let i2c = I2C::new(
+        peripherals.I2C0,
+        io.pins.gpio18,
+        io.pins.gpio17,
+        10u32.kHz(),
+        &mut system.peripheral_clock_control,
+        &clocks,
+    );
+    log::init_logger(i2c);
+
+    log::reset_cursor();
+
+    let test: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+    log!("{:x?}", test);
+
+    let mut buffer = [0u8; 24];
+    log::read_log(0, &mut buffer);
+    println!("{}", core::str::from_utf8(&buffer).unwrap());
 
     /******** Initialize LEDs ********/
     let led = led::Led::new(
