@@ -43,7 +43,7 @@ where
         self.i2c.read_from(I2C_ADDRESS, data)
     }
 
-    fn capacity(&mut self) -> u32 {
+    fn size(&mut self) -> u32 {
         8192
     }
 }

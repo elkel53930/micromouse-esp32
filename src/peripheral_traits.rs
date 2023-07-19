@@ -39,5 +39,5 @@ pub trait I2cInterface {
 pub trait RandomAccessMemory<Address> {
     fn write(&mut self, address: Address, data: &[u8]) -> Result<(), ()>;
     fn read(&mut self, address: Address, data: &mut [u8]) -> Result<(), ()>;
-    fn capacity(&mut self) -> u32;
+    fn size(&mut self) -> u32;
 }
