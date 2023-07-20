@@ -299,6 +299,7 @@ name = "micromouse_esp32"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "embedded-hal",
  "esp-backtrace",
  "esp-println",
  "esp32s3-hal",

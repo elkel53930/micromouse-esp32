@@ -19,6 +19,7 @@ use hal::{
     spi::{FullDuplexMode, Spi, SpiMode},
     timer::{Timer, Timer0, TimerGroup},
     Delay, Rtc,
+    Uart,
 };
 
 use core::cell::RefCell;
@@ -35,6 +36,7 @@ use wall_sensors::WallSensor::{LF, LS, RF, RS};
 mod fram;
 mod log;
 mod motor;
+mod uart_read_line;
 
 type Global<T> = Mutex<RefCell<Option<T>>>;
 type ActualImu<'a> =
@@ -263,6 +265,16 @@ fn main() -> ! {
     with(|cs| {
         GL_TIMER00.borrow(cs).replace(Some(timer00));
     });
+
+    let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
+    println!("Hello, world!");
+
+    loop {
+        let mut buffer = [0u8; 24];
+        println!("Input something:");
+        uart_read_line::read_line(&mut serial0, &mut buffer);
+        println!("> {}", core::str::from_utf8(&buffer).unwrap());
+    }
 
     loop {
         // Display wall sensor values
