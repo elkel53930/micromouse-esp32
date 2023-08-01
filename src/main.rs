@@ -33,6 +33,7 @@ mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
 mod log;
 mod uart_read_line;
+mod console;
 
 type ActualImu<'a> =
     imu::Imu<Spi<'a, SPI3, FullDuplexMode>, GpioPin<Output<PushPull>, 9>, GlobalDelay>;

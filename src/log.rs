@@ -11,12 +11,12 @@ use hal::{i2c::I2C, peripherals::I2C0};
 const LOG_HEADER_SIZE: u16 = 2;
 
 type Global<T> = Mutex<RefCell<Option<T>>>;
-static GL_FRAM_WRITER: Global<FramWriter<fram::Fram<I2C<'_, I2C0>>>> =
+static GL_FRAM_WRITER: Global<FramLogger<fram::Fram<I2C<'_, I2C0>>>> =
     Mutex::new(RefCell::new(None));
 
 pub fn init_logger(i2c: I2C<'static, I2C0>) {
     let fram = fram::Fram::new(i2c);
-    let fram_writer = FramWriter::new(fram);
+    let fram_writer = FramLogger::new(fram);
     with(|cs| {
         GL_FRAM_WRITER.borrow(cs).replace(Some(fram_writer));
     });
@@ -79,21 +79,21 @@ impl Write for LogWriter {
     }
 }
 
-pub struct FramWriter<Memory: peripheral_traits::RandomAccessMemory<u16>> {
+pub struct FramLogger<Memory: peripheral_traits::RandomAccessMemory<u16>> {
     memory: Memory,
-    cursor: u16,
+    fram_cursor: u16,
     buffer: [u8; BUFFER_SIZE],
     buffer_cursor: usize,
 }
 
-impl<Memory> FramWriter<Memory>
+impl<Memory> FramLogger<Memory>
 where
     Memory: peripheral_traits::RandomAccessMemory<u16>,
 {
     pub fn new(memory: Memory) -> Self {
-        let mut logger = FramWriter {
+        let mut logger = FramLogger {
             memory: memory,
-            cursor: 0,
+            fram_cursor: 0, // 0..FRAM size. basically, loop from LOG_HEADER_SIZE to FRAM size
             buffer: [0; BUFFER_SIZE],
             buffer_cursor: 0,
         };
@@ -101,7 +101,7 @@ where
         let mut buf: [u8; 2] = [0; 2];
 
         logger.memory.read(0x0000, &mut buf).unwrap();
-        logger.cursor = (buf[1] as u16) * 256 + buf[0] as u16;
+        logger.fram_cursor = (buf[1] as u16) * 256 + buf[0] as u16;
 
         logger
     }
@@ -112,21 +112,17 @@ where
 
         // If the buffer is full, rotate to the first.
         // TODO: this rotation code is not tested.
-        if self.buffer_cursor + self.cursor as usize >= self.memory.size() as usize {
-            let remaining_size = self.memory.size() as usize - self.cursor as usize;
-            self.memory
-                .write(self.cursor, &self.buffer[0..remaining_size])
-                .unwrap();
-            self.cursor = LOG_HEADER_SIZE;
+        if self.buffer_cursor + self.fram_cursor as usize >= self.memory.size() as usize {
+            let remaining_size = self.memory.size() as usize - self.fram_cursor as usize;
+            self.memory.write(self.fram_cursor, &self.buffer[0..remaining_size]).unwrap();
+            self.fram_cursor = LOG_HEADER_SIZE;
             write_from = remaining_size;
         }
 
+        self.memory.write(self.fram_cursor, &self.buffer[write_from..write_to]).unwrap();
+        self.fram_cursor += self.buffer_cursor as u16;
         self.memory
-            .write(self.cursor, &self.buffer[write_from..write_to])
-            .unwrap();
-        self.cursor += self.buffer_cursor as u16;
-        self.memory
-            .write(0x0000, &self.cursor.to_le_bytes())
+            .write(0x0000, &self.fram_cursor.to_le_bytes())
             .unwrap();
         self.buffer_cursor = 0;
     }
@@ -147,13 +143,80 @@ where
     }
 
     pub fn set_cursor(&mut self, cursor: u16) {
-        self.cursor = cursor;
+        self.fram_cursor = cursor;
         self.memory
-            .write(0x0000, &self.cursor.to_le_bytes())
+            .write(0x0000, &self.fram_cursor.to_le_bytes())
             .unwrap();
     }
 
     pub fn memory(&mut self) -> &mut Memory {
         &mut self.memory
+    }
+
+    /* 
+     case 1
+         HHab cdef ghij klmn opqr fram_size = 20
+                        ^ cur = 13
+         read_recent_log(10 ,data)
+         The result will be "bcdefghijk".
+
+     case 2
+         HHab cdef ghij klmn opqr fram_size = 20
+                ^ cur = 7
+         read_recent_log(10 ,data)
+         The result will be "mnopqrabcd".
+              
+     */
+    pub fn read_recent_log(&mut self, len: u16, data: &mut [u8]) -> Result<(), ()> {
+        if len as usize > data.len() {
+            return Err(());
+        }
+
+        let total_log_capacity = self.memory.size() as u16 - LOG_HEADER_SIZE;
+
+        if len > total_log_capacity {
+            return Err(());
+        }
+
+        if self.fram_cursor > len + LOG_HEADER_SIZE + 1 {
+            // case 2
+            let tail_size = (len - LOG_HEADER_SIZE - 1) as usize;
+            let adrs = self.memory.size() as u16 - tail_size as u16;
+            self.memory.read(adrs, &mut data[0..tail_size]);
+            self.memory.read(adrs, &mut data[tail_size..data.len()]);
+        } else {
+            // case 1
+            let adrs = self.fram_cursor - len - 1;
+            self.memory.read(adrs, data);
+        }
+        return Ok(());
+    }
+
+    // Convert relative address to absolute address
+    fn rlt_to_abs_internal(&self, size: u16, cursor: u16, rlt_adrs: u16) -> u16 {
+        let rlt_adrs = rlt_adrs % size;
+    
+        if cursor > rlt_adrs {
+            cursor - rlt_adrs - 1
+        } else {
+            let tail_size = rlt_adrs - cursor;
+            size - tail_size - 1
+        }
+    }
+    
+    const LOG_HEADER_SIZE: u16 = 2;
+    
+    fn rlt_to_abs(&self, rlt_adrs: u16) -> u16 {
+        let size = self.memory.size() as u16 - LOG_HEADER_SIZE;
+        let cursor = self.fram_cursor - LOG_HEADER_SIZE;
+        self.rlt_to_abs_internal(size, cursor, rlt_adrs) + LOG_HEADER_SIZE
+    }
+    
+
+    pub fn read_log(&mut self, from: u16, data: &mut [u8]) -> Result<(), ()> {
+        for i in range(data.len()){
+
+        }
+        Ok(())
     }
 }
