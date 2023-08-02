@@ -25,17 +25,14 @@ use hal::{
 use core::cell::RefCell;
 use critical_section::{with, Mutex};
 
-mod encoder;
-mod imu;
 mod peripheral_adapter;
 mod peripheral_traits;
 use peripheral_adapter::GlobalDelay;
-mod led;
+mod peripheral;
+use peripheral::{led, imu, encoder, motor, fram};
 mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
-mod fram;
 mod log;
-mod motor;
 mod uart_read_line;
 
 type Global<T> = Mutex<RefCell<Option<T>>>;
