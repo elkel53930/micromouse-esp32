@@ -1,27 +1,53 @@
-//! This shows how to use the SYSTIMER peripheral including interrupts.
-//! It's an additional timer besides the TIMG peripherals.
-
 #![no_std]
 #![no_main]
 
 use core::cell::RefCell;
+use critical_section::{with, Mutex};
 
-use critical_section::Mutex;
+
 use hal::{
-    clock::ClockControl,
-    interrupt,
-    interrupt::Priority,
-    peripherals::{self, Peripherals},
+    adc::{AdcConfig, AdcPin, Attenuation, ADC, ADC1},
+    clock::{ClockControl, CpuClock},
+    gpio::{Analog, GpioPin, Output, PushPull, Unknown, IO},
+    i2c::I2C,
+    interrupt::{self, Priority},
+    mcpwm::{
+        operator::{PwmPin, PwmPinConfig},
+        timer::PwmWorkingMode,
+        PeripheralClockConfig, MCPWM,
+    },
+    peripherals::{self, Peripherals, MCPWM0, MCPWM1, SPI2, SPI3, TIMG0},
     prelude::*,
+    spi::{FullDuplexMode, Spi, SpiMode},
+    timer::{Timer, Timer0, TimerGroup},
+    Delay, Rtc,
+    Uart,
     systimer::{Alarm, Periodic, SystemTimer, Target},
-    timer::TimerGroup,
-    Delay,
-    Rtc,
 };
+
+
 use esp_backtrace as _;
 use esp_println::println;
 
-static ALARM0: Mutex<RefCell<Option<Alarm<Periodic, 0>>>> = Mutex::new(RefCell::new(None));
+
+mod peripheral_traits;
+mod peripheral_adapter;
+mod led;
+
+type ActualLed = led::Led<
+    GpioPin<Output<PushPull>, 21>,
+    GpioPin<Output<PushPull>, 19>,
+    GpioPin<Output<PushPull>, 20>,
+>;
+type Global<T> = Mutex<RefCell<Option<T>>>;
+//pub static GL_LED: Global<ActualLed> = Mutex::new(RefCell::new(None));
+
+pub static mut GL_LED: Option<ActualLed> = None;
+
+pub static GL_ADC1: Global<ADC<'_, ADC1>> = Mutex::new(RefCell::new(None));
+pub static GL_DELAY: Global<Delay> = Mutex::new(RefCell::new(None));
+
+static mut ALARM0: Option<Alarm<Periodic, 0>> = None;
 static ALARM1: Mutex<RefCell<Option<Alarm<Target, 1>>>> = Mutex::new(RefCell::new(None));
 static ALARM2: Mutex<RefCell<Option<Alarm<Target, 2>>>> = Mutex::new(RefCell::new(None));
 
@@ -29,7 +55,11 @@ static ALARM2: Mutex<RefCell<Option<Alarm<Target, 2>>>> = Mutex::new(RefCell::ne
 fn main() -> ! {
     let peripherals = Peripherals::take();
     let mut system = peripherals.SYSTEM.split();
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    let clocks = ClockControl::configure(
+        system.clock_control,
+        CpuClock::Clock240MHz,
+    )
+    .freeze();
 
     let timer_group0 = TimerGroup::new(
         peripherals.TIMG0,
@@ -43,12 +73,28 @@ fn main() -> ! {
     wdt.disable();
     rtc.rwdt.disable();
 
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    /******** Initialize LEDs ********/
+    let led = led::Led::new(
+        io.pins.gpio21.into_push_pull_output(),
+        io.pins.gpio19.into_push_pull_output(),
+        io.pins.gpio20.into_push_pull_output(),
+    );
+    unsafe{
+        GL_LED = Some(led);
+    }
+//    with(|cs| GL_LED.borrow(cs).replace(Some(led)));
+
+//    let mut red_led = io.pins.gpio21.into_push_pull_output();
+
     let syst = SystemTimer::new(peripherals.SYSTIMER);
 
     println!("SYSTIMER Current value = {}", SystemTimer::now());
 
+
     let alarm0 = syst.alarm0.into_periodic();
-    alarm0.set_period(1u32.Hz());
+    alarm0.set_period(10u32.kHz());
     alarm0.interrupt_enable(true);
 
     let alarm1 = syst.alarm1;
@@ -59,8 +105,11 @@ fn main() -> ! {
     alarm2.set_target(SystemTimer::now() + (SystemTimer::TICKS_PER_SECOND * 3));
     alarm2.interrupt_enable(true);
 
+    unsafe{
+        ALARM0 = Some(alarm0);
+    }
+
     critical_section::with(|cs| {
-        ALARM0.borrow_ref_mut(cs).replace(alarm0);
         ALARM1.borrow_ref_mut(cs).replace(alarm1);
         ALARM2.borrow_ref_mut(cs).replace(alarm2);
     });
@@ -86,20 +135,28 @@ fn main() -> ! {
     let mut delay = Delay::new(&clocks);
 
     loop {
-        delay.delay_ms(500u32);
+//        red_led.set_low().unwrap();
+//        red_led.set_high().unwrap();
+//        with(|cs| {
+//            GL_LED.borrow(cs).borrow_mut().as_mut().unwrap().red_on();
+//            GL_LED.borrow(cs).borrow_mut().as_mut().unwrap().red_off();
+//        });
     }
 }
 
 #[interrupt]
 fn SYSTIMER_TARGET0() {
-    println!("Interrupt lvl1 (alarm0)");
-    critical_section::with(|cs| {
-        ALARM0
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .clear_interrupt()
-    });
+    unsafe{
+        GL_LED.as_mut().unwrap().red_on();
+    }
+    
+    unsafe{
+        ALARM0.as_mut().unwrap().clear_interrupt();
+    }
+
+    unsafe{
+        GL_LED.as_mut().unwrap().red_off();
+    }
 }
 
 #[interrupt]
