@@ -114,12 +114,16 @@ where
         // TODO: this rotation code is not tested.
         if self.buffer_cursor + self.cursor as usize >= self.memory.size() as usize {
             let remaining_size = self.memory.size() as usize - self.cursor as usize;
-            self.memory.write(self.cursor, &self.buffer[0..remaining_size]).unwrap();
+            self.memory
+                .write(self.cursor, &self.buffer[0..remaining_size])
+                .unwrap();
             self.cursor = LOG_HEADER_SIZE;
             write_from = remaining_size;
         }
 
-        self.memory.write(self.cursor, &self.buffer[write_from..write_to]).unwrap();
+        self.memory
+            .write(self.cursor, &self.buffer[write_from..write_to])
+            .unwrap();
         self.cursor += self.buffer_cursor as u16;
         self.memory
             .write(0x0000, &self.cursor.to_le_bytes())

@@ -18,8 +18,7 @@ use hal::{
     prelude::*,
     spi::{FullDuplexMode, Spi, SpiMode},
     timer::{Timer, Timer0, TimerGroup},
-    Delay, Rtc,
-    Uart,
+    Delay, Rtc, Uart,
 };
 
 use core::cell::RefCell;
@@ -29,13 +28,12 @@ mod peripheral_adapter;
 mod peripheral_traits;
 use peripheral_adapter::GlobalDelay;
 mod peripheral;
-use peripheral::{led, imu, encoder, motor, fram};
+use peripheral::{encoder, fram, imu, led, motor};
 mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
 mod log;
 mod uart_read_line;
 
-type Global<T> = Mutex<RefCell<Option<T>>>;
 type ActualImu<'a> =
     imu::Imu<Spi<'a, SPI3, FullDuplexMode>, GpioPin<Output<PushPull>, 9>, GlobalDelay>;
 type ActualEncoder<'a> = encoder::Encoder<
@@ -63,15 +61,15 @@ type ActualMotorR<'a> =
 type ActualMotorL<'a> =
     motor::Motor<PwmPin<'a, GpioPin<Unknown, 34>, MCPWM1, 0, true>, GpioPin<Output<PushPull>, 35>>;
 
-pub static GL_ADC1: Global<ADC<'_, ADC1>> = Mutex::new(RefCell::new(None));
-pub static GL_DELAY: Global<Delay> = Mutex::new(RefCell::new(None));
-pub static GL_IMU: Global<ActualImu<'_>> = Mutex::new(RefCell::new(None));
-pub static GL_ENCODER: Global<ActualEncoder<'_>> = Mutex::new(RefCell::new(None));
-pub static GL_WALL_SENSORS: Global<ActualWallSensors> = Mutex::new(RefCell::new(None));
-pub static GL_LED: Global<ActualLed> = Mutex::new(RefCell::new(None));
-pub static GL_TIMER00: Global<Timer<Timer0<TIMG0>>> = Mutex::new(RefCell::new(None));
-pub static GL_MOTOR_R: Global<ActualMotorR<'_>> = Mutex::new(RefCell::new(None));
-pub static GL_MOTOR_L: Global<ActualMotorL<'_>> = Mutex::new(RefCell::new(None));
+pub static mut GL_ADC1: Option<ADC<'_, ADC1>> = None;
+pub static mut GL_DELAY: Option<Delay> = None;
+pub static mut GL_IMU: Option<ActualImu<'_>> = None;
+pub static mut GL_ENCODER: Option<ActualEncoder<'_>> = None;
+pub static mut GL_WALL_SENSORS: Option<ActualWallSensors> = None;
+pub static mut GL_LED: Option<ActualLed> = None;
+pub static mut GL_TIMER00: Option<Timer<Timer0<TIMG0>>> = None;
+pub static mut GL_MOTOR_R: Option<ActualMotorR<'_>> = None;
+pub static mut GL_MOTOR_L: Option<ActualMotorL<'_>> = None;
 
 const TIMER_INTERVAL: u64 = 1u64; // ms
 
@@ -79,7 +77,7 @@ struct InterruptContext {
     step: u32,
 }
 
-static INTERRUPT_CONTEXT: Global<InterruptContext> = Mutex::new(RefCell::new(None));
+static INTERRUPT_CONTEXT: Option<InterruptContext> = None;
 
 #[entry]
 fn main() -> ! {
@@ -102,15 +100,9 @@ fn main() -> ! {
     wdt0.disable();
     rtc.rwdt.disable();
 
-    with(|cs| GL_DELAY.borrow(cs).replace(Some(Delay::new(&clocks))));
-
-    // Set timer interrupt
-    with(|cs| {
-        INTERRUPT_CONTEXT
-            .borrow(cs)
-            .replace(Some(InterruptContext { step: 0 }))
-    });
-    interrupt::enable(peripherals::Interrupt::TG0_T0_LEVEL, Priority::Priority2).unwrap();
+    unsafe {
+        GL_DELAY = Some(Delay::new(&clocks));
+    }
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
@@ -140,7 +132,10 @@ fn main() -> ! {
         io.pins.gpio19.into_push_pull_output(),
         io.pins.gpio20.into_push_pull_output(),
     );
-    with(|cs| GL_LED.borrow(cs).replace(Some(led)));
+
+    unsafe {
+        GL_LED = Some(led);
+    }
 
     /******** Encoders ********/
     let cs_r = io.pins.gpio46.into_push_pull_output();
@@ -157,7 +152,9 @@ fn main() -> ! {
     );
     let encoder = encoder::Encoder::new(spi, cs_r, cs_l);
 
-    with(|cs| GL_ENCODER.borrow(cs).replace(Some(encoder)));
+    unsafe {
+        GL_ENCODER = Some(encoder);
+    }
 
     /******** Initialize IMU ********/
     let spi_imu = Spi::new_no_cs(
@@ -177,7 +174,9 @@ fn main() -> ! {
         GlobalDelay::new(),
     );
 
-    with(|cs| GL_IMU.borrow(cs).replace(Some(imu)));
+    unsafe {
+        GL_IMU = Some(imu);
+    }
 
     /******** Initialize Wall sensors ********/
     let analog = peripherals.SENS.split();
@@ -192,12 +191,16 @@ fn main() -> ! {
     let led_sel1 = io.pins.gpio16.into_push_pull_output();
     let adc1 = ADC::<ADC1>::adc(analog.adc1, adc1_config).unwrap();
 
-    with(|cs| GL_ADC1.borrow(cs).replace(Some(adc1)));
+    unsafe {
+        GL_ADC1 = Some(adc1);
+    }
 
     let wall_sensors =
         wall_sensors::WallSensors::new(pin_lf, pin_ls, pin_rs, pin_rf, led_ena, led_sel0, led_sel1);
 
-    with(|cs| GL_WALL_SENSORS.borrow(cs).replace(Some(wall_sensors)));
+    unsafe {
+        GL_WALL_SENSORS = Some(wall_sensors);
+    }
 
     /******** Initialize Motors ********/
     let pwm_r = io.pins.gpio36;
@@ -247,149 +250,37 @@ fn main() -> ! {
     pwm_r.set_timestamp(0);
     pwm_l.set_timestamp(0);
 
-    with(|cs| {
-        GL_MOTOR_R
-            .borrow(cs)
-            .replace(Some(motor::Motor::new(pwm_r, cwccw_r)));
-        GL_MOTOR_L
-            .borrow(cs)
-            .replace(Some(motor::Motor::new(pwm_l, cwccw_l)));
-    });
-
-    /******** Start interrupt timer ********/
-    timer00.start(TIMER_INTERVAL.millis());
-    timer00.listen();
-    with(|cs| {
-        GL_TIMER00.borrow(cs).replace(Some(timer00));
-    });
+    unsafe {
+        GL_MOTOR_R = Some(motor::Motor::new(pwm_r, cwccw_r));
+        GL_MOTOR_L = Some(motor::Motor::new(pwm_l, cwccw_l));
+    }
 
     let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
     println!("Hello, world!");
 
     loop {
-        let mut buffer = [0u8; 24];
-        println!("Input something:");
-        uart_read_line::read_line(&mut serial0, &mut buffer);
-        println!("> {}", core::str::from_utf8(&buffer).unwrap());
-    }
-
-    loop {
         // Display wall sensor values
-        let lf = with(|cs| {
-            GL_WALL_SENSORS
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .read(LF)
-        });
-        let ls = with(|cs| {
-            GL_WALL_SENSORS
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .read(LS)
-        });
-        let rs = with(|cs| {
-            GL_WALL_SENSORS
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .read(RS)
-        });
-        let rf = with(|cs| {
-            GL_WALL_SENSORS
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .read(RF)
-        });
+        let lf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LF) };
+        let ls = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LS) };
+        let rs = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RS) };
+        let rf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RF) };
         println!("LF {:04} LS {:04} RS {:04} RF {:04}", lf, ls, rs, rf);
 
-        // Encoder
-        let encr = with(|cs| {
-            GL_ENCODER
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .read_r()
-        });
-        let encl = with(|cs| {
-            GL_ENCODER
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .read_l()
-        });
+        // Display encoder values
+        let encr = unsafe { GL_ENCODER.as_mut().unwrap().read_r() };
+        let encl = unsafe { GL_ENCODER.as_mut().unwrap().read_l() };
         println!("enc {}, {}", encr, encl);
 
         // IMU
-        let gyro = with(|cs| GL_IMU.borrow(cs).borrow_mut().as_mut().unwrap().read());
-        let who_am_i = with(|cs| GL_IMU.borrow(cs).borrow_mut().as_mut().unwrap().who_am_i());
+        let gyro = unsafe { GL_IMU.as_mut().unwrap().read() };
+
+        let who_am_i = unsafe { GL_IMU.as_mut().unwrap().who_am_i() };
+
         println!("imu {}, who {:x?}", gyro, who_am_i);
 
-        with(|cs| {
-            GL_DELAY
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .delay_ms(250u32);
-        });
+        unsafe {
+            GL_DELAY.as_mut().unwrap().delay_ms(1000u32);
+        }
     }
 }
 
-#[interrupt]
-#[allow(non_snake_case)]
-fn TG0_T0_LEVEL() {
-    critical_section::with(|cs| {
-        let mut timer = GL_TIMER00.borrow_ref_mut(cs);
-        let timer = timer.as_mut().unwrap();
-
-        if timer.is_interrupt_set() {
-            GL_LED
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .set(true, true, true);
-            GL_LED
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .set(false, true, true);
-            timer.clear_interrupt();
-            timer.start(TIMER_INTERVAL.millis());
-            GL_LED
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .set(false, false, true);
-            let step = INTERRUPT_CONTEXT
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .step;
-            INTERRUPT_CONTEXT
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .step = (step + 1) % 2;
-            GL_LED
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .set(false, false, false);
-        }
-    });
-}

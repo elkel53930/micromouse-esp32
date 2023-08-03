@@ -1,5 +1,4 @@
 use crate::peripheral_traits;
-use critical_section::with;
 
 use esp_backtrace as _;
 use hal::{
@@ -55,28 +54,36 @@ impl<PIN: _embedded_hal_digital_v2_OutputPin> peripheral_traits::OutputPin for P
 // Implement trait peripheral_traits::AdConverter for ADC1 and GPIO1
 impl peripheral_traits::AdConverter for AdcPin<GpioPin<Analog, 1>, ADC1> {
     fn read(&mut self) -> u16 {
-        with(|cs| nb::block!(GL_ADC1.borrow(cs).borrow_mut().as_mut().unwrap().read(self)).unwrap())
+        unsafe {
+            nb::block!(GL_ADC1.as_mut().unwrap().read(self)).unwrap()
+        }
     }
 }
 
 // Implement trait peripheral_traits::AdConverter for ADC1 and GPIO2
 impl peripheral_traits::AdConverter for AdcPin<GpioPin<Analog, 2>, ADC1> {
     fn read(&mut self) -> u16 {
-        with(|cs| nb::block!(GL_ADC1.borrow(cs).borrow_mut().as_mut().unwrap().read(self)).unwrap())
+        unsafe {
+            nb::block!(GL_ADC1.as_mut().unwrap().read(self)).unwrap()
+        }
     }
 }
 
 // Implement trait peripheral_traits::AdConverter for ADC1 and GPIO3
 impl peripheral_traits::AdConverter for AdcPin<GpioPin<Analog, 3>, ADC1> {
     fn read(&mut self) -> u16 {
-        with(|cs| nb::block!(GL_ADC1.borrow(cs).borrow_mut().as_mut().unwrap().read(self)).unwrap())
+        unsafe {
+            nb::block!(GL_ADC1.as_mut().unwrap().read(self)).unwrap()
+        }
     }
 }
 
 // Implement trait peripheral_traits::AdConverter for ADC1 and GPIO4
 impl peripheral_traits::AdConverter for AdcPin<GpioPin<Analog, 4>, ADC1> {
     fn read(&mut self) -> u16 {
-        with(|cs| nb::block!(GL_ADC1.borrow(cs).borrow_mut().as_mut().unwrap().read(self)).unwrap())
+        unsafe {
+            nb::block!(GL_ADC1.as_mut().unwrap().read(self)).unwrap()
+        }
     }
 }
 
@@ -101,25 +108,11 @@ impl GlobalDelay {
 
 impl peripheral_traits::Delay for GlobalDelay {
     fn ms(&mut self, ms: u32) {
-        with(|cs| {
-            GL_DELAY
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .delay_ms(ms);
-        });
+        unsafe{GL_DELAY.as_mut().unwrap().delay_ms(ms)}
     }
 
     fn us(&mut self, us: u32) {
-        with(|cs| {
-            GL_DELAY
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .delay_us(us);
-        });
+        unsafe{GL_DELAY.as_mut().unwrap().delay_us(us)}
     }
 }
 
