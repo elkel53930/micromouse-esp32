@@ -24,7 +24,7 @@ cargo espflash {your-tty-device} --monitor
 ## Monitor with picocom
 
 ```bash
-picocom {your-tty-device} -b 115200 --imap lfcrlf --echocrlf --echo
+picocom {your-tty-device} -b 115200 --imap lfcrlf --echo
 ```
 
 # Note
