@@ -118,14 +118,25 @@ fn main() -> ! {
     );
     log::init_logger(i2c);
 
-    log::reset_cursor();
+//    for i in 0..1000 {
+//        println!("reset {}", i);
+//        log!("reset {}", i);
+//    }
 
-    let test: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
-    log!("{:x?}", test);
-
-    let mut buffer = [0u8; 24];
-    log::read_log(0, &mut buffer);
-    println!("{}", core::str::from_utf8(&buffer).unwrap());
+//    let mut data = [0u8; 24];
+//    for i in 0..300 {
+//        log::read_log_chunk(7200 - data.len() as u16 * i, &mut data);
+//        esp_println::print!("{}", core::str::from_utf8(&data).unwrap());
+//    }
+//
+//    let mut data = [0u8; 10];
+//    log::read_log(0, &mut data);
+//    esp_println::println!("start: {}", core::str::from_utf8(&data).unwrap());
+//    esp_println::println!("start: {:?}", data);
+//
+//    log::read_log(8180, &mut data);
+//    esp_println::println!("end: {}", core::str::from_utf8(&data).unwrap());
+//    esp_println::println!("end: {:?}", data);
 
     /******** Initialize LEDs ********/
     let led = led::Led::new(
@@ -243,6 +254,9 @@ fn main() -> ! {
         .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 200u32.kHz())
         .unwrap();
 
+    // Initialize serial port
+    let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
+
     // Start timers
     mcpwm0.timer0.start(timer_clock_cfg);
     mcpwm1.timer0.start(timer_clock_cfg);
@@ -256,8 +270,9 @@ fn main() -> ! {
         GL_MOTOR_L = Some(motor::Motor::new(pwm_l, cwccw_l));
     }
 
-    let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
-    println!("Hello, world!");
+    /******** Initialize Console ********/
+    let mut console = console::Console::new();
+    console.run(&mut serial0);
 
     loop {
         // Display wall sensor values
