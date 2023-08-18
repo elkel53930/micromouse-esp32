@@ -1,17 +1,18 @@
 use crate::uart_read_line::read_line;
-use crate::{log, GL_MOTOR_L, GL_MOTOR_R};
+use crate::{log, GL_BATTERY, GL_MOTOR_L, GL_MOTOR_R};
 use embedded_hal::serial::Read;
 
 use core::str::FromStr;
 
-const NUM_OF_COMMAND: usize = 2;
+const NUM_OF_COMMAND: usize = 3;
 pub struct Console<'a> {
     commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND],
 }
 
 impl<'a> Console<'a> {
     pub fn new() -> Console<'a> {
-        let commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND] = [&CmdShowlog {}, &CmdMot {}];
+        let commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND] =
+            [&CmdShowlog {}, &CmdMot {}, &CmtBatt {}];
 
         Console { commands }
     }
@@ -161,5 +162,33 @@ impl ConsoleCommand for CmdMot {
 
     fn name(&self) -> &str {
         "mot"
+    }
+}
+
+/* batt command */
+pub struct CmtBatt {}
+
+impl ConsoleCommand for CmtBatt {
+    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str> {
+        if arg_num == 0 {
+            let batt = unsafe { GL_BATTERY.as_mut().unwrap().read_mv() };
+            esp_println::println!("Battery: {:.3}V", batt);
+        } else if arg_num == 0 {
+            unsafe {
+                GL_MOTOR_L.as_mut().unwrap().set_duty(0);
+                GL_MOTOR_R.as_mut().unwrap().set_duty(0);
+            }
+        } else {
+            return Err("invalid number of arguments");
+        }
+        Ok(())
+    }
+
+    fn hint(&self) {
+        esp_println::println!("Usage: batt");
+    }
+
+    fn name(&self) -> &str {
+        "batt"
     }
 }

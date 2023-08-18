@@ -79,6 +79,13 @@ impl peripheral_traits::AdConverter for AdcPin<GpioPin<Analog, 4>, ADC1> {
     }
 }
 
+// Implement trait peripheral_traits::AdConverter for ADC1 and GPIO5
+impl peripheral_traits::AdConverter for AdcPin<GpioPin<Analog, 5>, ADC1> {
+    fn read(&mut self) -> u16 {
+        unsafe { nb::block!(GL_ADC1.as_mut().unwrap().read(self)).unwrap() }
+    }
+}
+
 // Delay
 impl peripheral_traits::Delay for Delay {
     fn ms(&mut self, ms: u32) {

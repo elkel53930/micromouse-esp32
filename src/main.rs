@@ -28,7 +28,7 @@ mod peripheral_adapter;
 mod peripheral_traits;
 use peripheral_adapter::GlobalDelay;
 mod peripheral;
-use peripheral::{encoder, fram, imu, led, motor};
+use peripheral::{battery, encoder, fram, imu, led, motor};
 mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
 mod console;
@@ -56,6 +56,7 @@ type ActualLed = led::Led<
     GpioPin<Output<PushPull>, 19>,
     GpioPin<Output<PushPull>, 20>,
 >;
+type ActualBattery = battery::Battery<AdcPin<GpioPin<Analog, 5>, ADC1>>;
 
 type ActualMotorR<'a> =
     motor::Motor<PwmPin<'a, GpioPin<Unknown, 36>, MCPWM0, 0, true>, GpioPin<Output<PushPull>, 37>>;
@@ -71,6 +72,7 @@ pub static mut GL_LED: Option<ActualLed> = None;
 pub static mut GL_TIMER00: Option<Timer<Timer0<TIMG0>>> = None;
 pub static mut GL_MOTOR_R: Option<ActualMotorR<'_>> = None;
 pub static mut GL_MOTOR_L: Option<ActualMotorL<'_>> = None;
+pub static mut GL_BATTERY: Option<ActualBattery> = None;
 
 const TIMER_INTERVAL: u64 = 1u64; // ms
 
@@ -178,6 +180,8 @@ fn main() -> ! {
     let pin_lf = adc1_config.enable_pin(io.pins.gpio2.into_analog(), Attenuation::Attenuation11dB);
     let pin_rf = adc1_config.enable_pin(io.pins.gpio3.into_analog(), Attenuation::Attenuation11dB);
     let pin_rs = adc1_config.enable_pin(io.pins.gpio4.into_analog(), Attenuation::Attenuation11dB);
+    let batt_mon =
+        adc1_config.enable_pin(io.pins.gpio5.into_analog(), Attenuation::Attenuation11dB);
     let led_ena = io.pins.gpio14.into_push_pull_output();
     let led_sel0 = io.pins.gpio15.into_push_pull_output();
     let led_sel1 = io.pins.gpio16.into_push_pull_output();
@@ -192,6 +196,11 @@ fn main() -> ! {
 
     unsafe {
         GL_WALL_SENSORS = Some(wall_sensors);
+    }
+
+    let battery = battery::Battery::new(batt_mon);
+    unsafe {
+        GL_BATTERY = Some(battery);
     }
 
     /******** Initialize Motors ********/
@@ -276,25 +285,49 @@ fn main() -> ! {
     let raising = 100u32;
     loop {
         // Display wall sensor values
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(LF);}
-        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().enable(LF);
+        }
+        unsafe {
+            GL_DELAY.as_mut().unwrap().delay_us(raising);
+        }
         let lf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LF) };
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().disable();
+        }
 
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(LS);}
-        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().enable(LS);
+        }
+        unsafe {
+            GL_DELAY.as_mut().unwrap().delay_us(raising);
+        }
         let ls = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LS) };
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().disable();
+        }
 
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(RS);}
-        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().enable(RS);
+        }
+        unsafe {
+            GL_DELAY.as_mut().unwrap().delay_us(raising);
+        }
         let rs = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RS) };
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().disable();
+        }
 
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(RF);}
-        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().enable(RF);
+        }
+        unsafe {
+            GL_DELAY.as_mut().unwrap().delay_us(raising);
+        }
         let rf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RF) };
-        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+        unsafe {
+            GL_WALL_SENSORS.as_mut().unwrap().disable();
+        }
 
         println!("LF {:04} LS {:04} RS {:04} RF {:04}", lf, ls, rs, rf);
 
