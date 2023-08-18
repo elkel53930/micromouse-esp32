@@ -118,26 +118,6 @@ fn main() -> ! {
     );
     log::init_logger(i2c);
 
-    //    for i in 0..1000 {
-    //        println!("reset {}", i);
-    //        log!("reset {}", i);
-    //    }
-
-    //    let mut data = [0u8; 24];
-    //    for i in 0..300 {
-    //        log::read_log_chunk(7200 - data.len() as u16 * i, &mut data);
-    //        esp_println::print!("{}", core::str::from_utf8(&data).unwrap());
-    //    }
-    //
-    //    let mut data = [0u8; 10];
-    //    log::read_log(0, &mut data);
-    //    esp_println::println!("start: {}", core::str::from_utf8(&data).unwrap());
-    //    esp_println::println!("start: {:?}", data);
-    //
-    //    log::read_log(8180, &mut data);
-    //    esp_println::println!("end: {}", core::str::from_utf8(&data).unwrap());
-    //    esp_println::println!("end: {:?}", data);
-
     /******** Initialize LEDs ********/
     let led = led::Led::new(
         io.pins.gpio21.into_push_pull_output(),
