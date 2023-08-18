@@ -293,13 +293,36 @@ fn main() -> ! {
     /******** Main loop ********/
     console.run(&mut serial0);
 
+    let raising = 100u32;
     loop {
         // Display wall sensor values
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(LF);}
+        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
         let lf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LF) };
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(LS);}
+        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
         let ls = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LS) };
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(RS);}
+        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
         let rs = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RS) };
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().enable(RF);}
+        unsafe {GL_DELAY.as_mut().unwrap().delay_us(raising);}
         let rf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RF) };
+        unsafe{GL_WALL_SENSORS.as_mut().unwrap().disable();}
+
         println!("LF {:04} LS {:04} RS {:04} RF {:04}", lf, ls, rs, rf);
+
+        unsafe {
+            GL_DELAY.as_mut().unwrap().delay_ms(1u32);
+        }
+
+        continue;
 
         // Display encoder values
         let encr = unsafe { GL_ENCODER.as_mut().unwrap().read_r() };
