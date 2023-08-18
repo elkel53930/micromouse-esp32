@@ -31,9 +31,9 @@ mod peripheral;
 use peripheral::{encoder, fram, imu, led, motor};
 mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
+mod console;
 mod log;
 mod uart_read_line;
-mod console;
 
 type ActualImu<'a> =
     imu::Imu<Spi<'a, SPI3, FullDuplexMode>, GpioPin<Output<PushPull>, 9>, GlobalDelay>;
@@ -118,25 +118,25 @@ fn main() -> ! {
     );
     log::init_logger(i2c);
 
-//    for i in 0..1000 {
-//        println!("reset {}", i);
-//        log!("reset {}", i);
-//    }
+    //    for i in 0..1000 {
+    //        println!("reset {}", i);
+    //        log!("reset {}", i);
+    //    }
 
-//    let mut data = [0u8; 24];
-//    for i in 0..300 {
-//        log::read_log_chunk(7200 - data.len() as u16 * i, &mut data);
-//        esp_println::print!("{}", core::str::from_utf8(&data).unwrap());
-//    }
-//
-//    let mut data = [0u8; 10];
-//    log::read_log(0, &mut data);
-//    esp_println::println!("start: {}", core::str::from_utf8(&data).unwrap());
-//    esp_println::println!("start: {:?}", data);
-//
-//    log::read_log(8180, &mut data);
-//    esp_println::println!("end: {}", core::str::from_utf8(&data).unwrap());
-//    esp_println::println!("end: {:?}", data);
+    //    let mut data = [0u8; 24];
+    //    for i in 0..300 {
+    //        log::read_log_chunk(7200 - data.len() as u16 * i, &mut data);
+    //        esp_println::print!("{}", core::str::from_utf8(&data).unwrap());
+    //    }
+    //
+    //    let mut data = [0u8; 10];
+    //    log::read_log(0, &mut data);
+    //    esp_println::println!("start: {}", core::str::from_utf8(&data).unwrap());
+    //    esp_println::println!("start: {:?}", data);
+    //
+    //    log::read_log(8180, &mut data);
+    //    esp_println::println!("end: {}", core::str::from_utf8(&data).unwrap());
+    //    esp_println::println!("end: {:?}", data);
 
     /******** Initialize LEDs ********/
     let led = led::Led::new(
@@ -215,12 +215,14 @@ fn main() -> ! {
     }
 
     /******** Initialize Motors ********/
+    let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40u32.MHz()).unwrap();
+
+    // Initialize MCPWM0
     let pwm_r = io.pins.gpio36;
     let mut cwccw_r = io.pins.gpio37.into_push_pull_output();
 
-    cwccw_r.set_high().unwrap();
+    cwccw_r.set_low().unwrap();
 
-    let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40u32.MHz()).unwrap();
     let mut mcpwm0 = MCPWM::new(
         peripherals.MCPWM0,
         clock_cfg,
@@ -232,11 +234,22 @@ fn main() -> ! {
         .operator0
         .with_pin_a(pwm_r, PwmPinConfig::UP_ACTIVE_HIGH);
 
+    // start timer with timestamp values in the range of 0..=99 and a frequency of 200 kHz
+    let timer_clock_cfg = clock_cfg
+        .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 20u32.kHz())
+        .unwrap();
+
+    // Start timers
+    mcpwm0.timer0.start(timer_clock_cfg);
+
+    // 0% duty
+    pwm_r.set_timestamp(0);
+
     // Initialize MCPWM1
     let pwm_l = io.pins.gpio34;
     let mut cwccw_l = io.pins.gpio35.into_push_pull_output();
 
-    cwccw_l.set_high().unwrap();
+    cwccw_l.set_low().unwrap();
 
     let mut mcpwm1 = MCPWM::new(
         peripherals.MCPWM1,
@@ -251,27 +264,33 @@ fn main() -> ! {
 
     // start timer with timestamp values in the range of 0..=99 and a frequency of 200 kHz
     let timer_clock_cfg = clock_cfg
-        .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 200u32.kHz())
+        .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 20u32.kHz())
         .unwrap();
 
-    // Initialize serial port
-    let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
-
     // Start timers
-    mcpwm0.timer0.start(timer_clock_cfg);
     mcpwm1.timer0.start(timer_clock_cfg);
 
     // 0% duty
-    pwm_r.set_timestamp(0);
     pwm_l.set_timestamp(0);
+
+    // Motor sleep
+    let mut motor_sleep = io.pins.gpio38.into_push_pull_output();
+    motor_sleep.set_high().unwrap(); // Enable
 
     unsafe {
         GL_MOTOR_R = Some(motor::Motor::new(pwm_r, cwccw_r));
         GL_MOTOR_L = Some(motor::Motor::new(pwm_l, cwccw_l));
+        GL_MOTOR_R.as_mut().unwrap().set_duty(0);
+        GL_MOTOR_L.as_mut().unwrap().set_duty(0);
     }
+
+    /******** Initialize serial port ********/
+    let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
 
     /******** Initialize Console ********/
     let mut console = console::Console::new();
+
+    /******** Main loop ********/
     console.run(&mut serial0);
 
     loop {
@@ -299,4 +318,3 @@ fn main() -> ! {
         }
     }
 }
-

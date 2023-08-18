@@ -22,10 +22,7 @@ pub fn init_logger(i2c: I2C<'static, I2C0>) {
 
 pub fn reset_cursor() {
     unsafe {
-        GL_FRAM_WRITER
-            .as_mut()
-            .unwrap()
-            .set_cursor(LOG_HEADER_SIZE);
+        GL_FRAM_WRITER.as_mut().unwrap().set_cursor(LOG_HEADER_SIZE);
     }
 }
 
@@ -81,12 +78,7 @@ pub struct LogWriter {}
 
 impl Write for LogWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        unsafe {
-            GL_FRAM_WRITER
-                .as_mut()
-                .unwrap()
-                .write_str(s)
-        }
+        unsafe { GL_FRAM_WRITER.as_mut().unwrap().write_str(s) }
     }
 }
 
@@ -125,12 +117,16 @@ where
         // TODO: this rotation code is not tested.
         if self.buffer_cursor + self.fram_cursor as usize >= self.memory.size() as usize {
             let remaining_size = self.memory.size() as usize - self.fram_cursor as usize;
-            self.memory.write(self.fram_cursor, &self.buffer[0..remaining_size]).unwrap();
+            self.memory
+                .write(self.fram_cursor, &self.buffer[0..remaining_size])
+                .unwrap();
             self.fram_cursor = LOG_HEADER_SIZE;
             write_from = remaining_size;
         }
 
-        self.memory.write(self.fram_cursor, &self.buffer[write_from..write_to]).unwrap();
+        self.memory
+            .write(self.fram_cursor, &self.buffer[write_from..write_to])
+            .unwrap();
         self.fram_cursor += self.buffer_cursor as u16;
         self.memory
             .write(0x0000, &self.fram_cursor.to_le_bytes())
@@ -164,20 +160,20 @@ where
         &mut self.memory
     }
 
-    /* 
-     case 1
-         HHab cdef ghij klmn opqr fram_size = 20
-                        ^ cur = 13
-         read_recent_log(10 ,data)
-         The result will be "bcdefghijk".
+    /*
+    case 1
+        HHab cdef ghij klmn opqr fram_size = 20
+                       ^ cur = 13
+        read_recent_log(10 ,data)
+        The result will be "bcdefghijk".
 
-     case 2
-         HHab cdef ghij klmn opqr fram_size = 20
-                ^ cur = 7
-         read_recent_log(10 ,data)
-         The result will be "mnopqrabcd".
-              
-     */
+    case 2
+        HHab cdef ghij klmn opqr fram_size = 20
+               ^ cur = 7
+        read_recent_log(10 ,data)
+        The result will be "mnopqrabcd".
+
+    */
     pub fn read_recent_log(&mut self, data: &mut [u8]) -> Result<(), ()> {
         let len = data.len() as u16;
 
@@ -197,13 +193,15 @@ where
             let adrs = self.memory.size() as u16 - tail_size as u16;
             let len = data.len();
             self.memory.read(adrs, &mut data[0..tail_size]).unwrap();
-            self.memory.read(LOG_HEADER_SIZE, &mut data[tail_size..len]).unwrap();
+            self.memory
+                .read(LOG_HEADER_SIZE, &mut data[tail_size..len])
+                .unwrap();
         }
         return Ok(());
     }
 
     pub fn read_log_chunk(&mut self, from: u16, data: &mut [u8]) -> Result<(), ()> {
-//        esp_println::println!("read_log_chunk({:?}, {:?})", from, data);
+        //        esp_println::println!("read_log_chunk({:?}, {:?})", from, data);
 
         let cursor = self.fram_cursor - LOG_HEADER_SIZE;
         let total_size = self.memory.size() as u16 - LOG_HEADER_SIZE;
@@ -216,11 +214,11 @@ where
 
         let data_len = data.len() as u16;
 
-//        esp_println::println!("cursor: {:?}", cursor);
-//        esp_println::println!("total_size: {:?}", total_size);
-//        esp_println::println!("adjusted_from: {:?}", adjusted_from);
-//        esp_println::println!("start_address: {:?}", start_address);
-//        esp_println::println!("data_len: {:?}", data_len);
+        //        esp_println::println!("cursor: {:?}", cursor);
+        //        esp_println::println!("total_size: {:?}", total_size);
+        //        esp_println::println!("adjusted_from: {:?}", adjusted_from);
+        //        esp_println::println!("start_address: {:?}", start_address);
+        //        esp_println::println!("data_len: {:?}", data_len);
 
         // Reading case where it wraps around the ring buffer
         if start_address + data_len > total_size {
@@ -228,9 +226,9 @@ where
             let actual_part1_size = core::cmp::min(part1_size, data_len);
             let part2_size = data_len.wrapping_sub(actual_part1_size);
 
-//            esp_println::println!("part1_size: {:?}", part1_size);
-//            esp_println::println!("actual_part1_size: {:?}", actual_part1_size);
-//            esp_println::println!("part2_size: {:?}", part2_size);
+            //            esp_println::println!("part1_size: {:?}", part1_size);
+            //            esp_println::println!("actual_part1_size: {:?}", actual_part1_size);
+            //            esp_println::println!("part2_size: {:?}", part2_size);
 
             // Read data up to the end of the buffer
             self.read_log(start_address, &mut data[0..actual_part1_size as usize])?;
@@ -255,10 +253,10 @@ where
         but if you specify 0 for adrs and use this function,
         the header is skipped and the first data of the log body is read.
     */
-    pub fn read_log(&mut self, adrs: u16, data: &mut[u8]) -> Result<(), ()> {
+    pub fn read_log(&mut self, adrs: u16, data: &mut [u8]) -> Result<(), ()> {
         let total_size = self.memory.size() as u16 - LOG_HEADER_SIZE;
         let len = data.len() as u16;
-        
+
         // If the requested size is larger than the total size of the log, return an error.
         if len > total_size {
             return Err(());
@@ -270,6 +268,7 @@ where
             len
         };
 
-        self.memory.read(adrs + LOG_HEADER_SIZE, &mut data[0..read_size as usize])
+        self.memory
+            .read(adrs + LOG_HEADER_SIZE, &mut data[0..read_size as usize])
     }
 }

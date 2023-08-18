@@ -1,24 +1,26 @@
-use crate::log;
-use embedded_hal::serial::Read;
 use crate::uart_read_line::read_line;
+use crate::{log, GL_MOTOR_L, GL_MOTOR_R};
+use embedded_hal::serial::Read;
 
-const NUM_OF_COMMAND: usize = 1;
+use core::str::FromStr;
+
+const NUM_OF_COMMAND: usize = 2;
 pub struct Console<'a> {
     commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND],
 }
 
 impl<'a> Console<'a> {
     pub fn new() -> Console<'a> {
-        let commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND] = [
-            &CmdMot {}
-        ];
+        let commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND] = [&CmdShowlog {}, &CmdMot {}];
 
         Console { commands }
     }
 
     pub fn run<T>(&mut self, uart: &mut T)
     where
-        T: Read<u8>,{
+        T: Read<u8>,
+    {
+        esp_println::println!("Welcome to ExtraICE console!");
         loop {
             let mut buf = [0u8; 256];
             let mut args = [""; 16];
@@ -55,20 +57,26 @@ impl<'a> Console<'a> {
             let mut found = false;
             for cmd in self.commands.iter_mut() {
                 if cmd.name() == args[0] {
-                    cmd.execute(&args[1..arg_num], arg_num - 1);
+                    match cmd.execute(&args[1..arg_num], arg_num - 1) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            esp_println::println!("Error: {}", e);
+                            cmd.hint();
+                        }
+                    }
                     found = true;
                     break;
                 }
             }
             if !found {
-                esp_println::println!("Command not found: {}", args[0]);
+                esp_println::println!("Command not found: '{}'", args[0]);
             }
         }
     }
 }
 
 pub trait ConsoleCommand {
-    fn execute(&self, args: &[&str], arg_num: usize);
+    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str>;
     fn hint(&self);
     fn name(&self) -> &str;
 }
@@ -76,23 +84,21 @@ pub trait ConsoleCommand {
 /* showlog command */
 pub struct CmdShowlog {}
 
+fn parse_or_error<T: FromStr>(arg: &str) -> Result<T, &'static str> {
+    arg.parse::<T>().map_err(|_| "Argument parse error")
+}
+
 impl ConsoleCommand for CmdShowlog {
-    fn execute(&self, args: &[&str], arg_num: usize) {
+    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str> {
         if arg_num == 1 || arg_num == 0 {
             let offset;
 
             if args.len() == 0 {
                 offset = 256;
             } else {
-                match args[0].parse::<u16>() {
-                    Ok(num) => offset = num,
-                    Err(_) => {
-                        esp_println::println!("Failed to parse the argument as a number");
-                        return;
-                    }
-                }
+                offset = parse_or_error(args[0])?;
             }
-            
+
             let mut data = [0u8; 24];
             let num_of_part = offset / data.len() as u16;
             let tail = offset % data.len() as u16;
@@ -103,13 +109,16 @@ impl ConsoleCommand for CmdShowlog {
             if tail != 0 {
                 log::read_log_chunk(tail, &mut data[0..tail as usize]);
                 data[tail as usize] = 0;
-                esp_println::print!("{}", core::str::from_utf8(&data[0..(tail-1) as usize]).unwrap());
+                esp_println::print!(
+                    "{}",
+                    core::str::from_utf8(&data[0..(tail - 1) as usize]).unwrap()
+                );
             }
             esp_println::println!("");
         } else {
-            esp_println::println!("Invalid number of arguments. expected 0 or 1, got {}", args.len());
-            self.hint();
+            return Err("invalid number of arguments");
         }
+        Ok(())
     }
 
     fn hint(&self) {
@@ -118,5 +127,39 @@ impl ConsoleCommand for CmdShowlog {
 
     fn name(&self) -> &str {
         "showlog"
+    }
+}
+
+/* mot command */
+pub struct CmdMot {}
+
+impl ConsoleCommand for CmdMot {
+    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str> {
+        if arg_num == 2 {
+            let lspeed = parse_or_error(args[0])?;
+            let rspeed = parse_or_error(args[1])?;
+            unsafe {
+                GL_MOTOR_L.as_mut().unwrap().set_duty(lspeed);
+                GL_MOTOR_R.as_mut().unwrap().set_duty(rspeed);
+            }
+        } else if arg_num == 0 {
+            unsafe {
+                GL_MOTOR_L.as_mut().unwrap().set_duty(0);
+                GL_MOTOR_R.as_mut().unwrap().set_duty(0);
+            }
+        } else {
+            return Err("invalid number of arguments");
+        }
+        Ok(())
+    }
+
+    fn hint(&self) {
+        esp_println::println!("Usage: mot [lspeed] [rspeed]");
+        esp_println::println!(" lspeed -100 - 100");
+        esp_println::println!(" rspeed -100 - 100");
+    }
+
+    fn name(&self) -> &str {
+        "mot"
     }
 }

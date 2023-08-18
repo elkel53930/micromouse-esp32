@@ -29,11 +29,12 @@ where
     // Saturation treatment for the duty ratio is required.
     pub fn set_duty(&mut self, duty: i16) {
         let mut duty = duty;
-        if duty < 0 {
-            self.cwccw.low();
-            duty = -duty;
-        } else {
+        if duty > 0 {
             self.cwccw.high();
+            duty = 99 - duty;
+        } else {
+            duty = -duty;
+            self.cwccw.low();
         }
         self.pwm.set_duty(duty as u16);
     }
