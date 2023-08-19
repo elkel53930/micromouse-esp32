@@ -165,8 +165,8 @@ where
 
     fn hint(&self) {
         esp_println::println!("Usage: mot [lspeed] [rspeed]");
-        esp_println::println!(" lspeed -100 - 100");
-        esp_println::println!(" rspeed -100 - 100");
+        esp_println::println!(" lspeed -99 - 99");
+        esp_println::println!(" rspeed -99 - 99");
         esp_println::println!(" To stop motors, call without arguments");
     }
 
