@@ -2,7 +2,6 @@
 #![no_main]
 
 use esp_backtrace as _;
-use esp_println::println;
 use hal::{
     adc::{AdcConfig, AdcPin, Attenuation, ADC, ADC1},
     clock::{ClockControl, CpuClock},
@@ -14,15 +13,15 @@ use hal::{
         timer::PwmWorkingMode,
         PeripheralClockConfig, MCPWM,
     },
-    peripherals::{self, Peripherals, MCPWM0, MCPWM1, SPI2, SPI3, TIMG0},
+    peripherals::{self, Peripherals, MCPWM0, MCPWM1, SPI2, SPI3, TIMG0, UART0},
     prelude::*,
     spi::{FullDuplexMode, Spi, SpiMode},
+    systimer::{Alarm, Periodic, SystemTimer},
     timer::{Timer, Timer0, TimerGroup},
     Delay, Rtc, Uart,
 };
 
-use core::cell::RefCell;
-use critical_section::{with, Mutex};
+use core::unreachable;
 
 mod peripheral_adapter;
 mod peripheral_traits;
@@ -33,7 +32,7 @@ mod wall_sensors;
 use wall_sensors::WallSensor::{LF, LS, RF, RS};
 mod console;
 mod log;
-mod uart_read_line;
+mod read_uart;
 
 type ActualImu<'a> =
     imu::Imu<Spi<'a, SPI3, FullDuplexMode>, GpioPin<Output<PushPull>, 9>, GlobalDelay>;
@@ -73,14 +72,54 @@ pub static mut GL_TIMER00: Option<Timer<Timer0<TIMG0>>> = None;
 pub static mut GL_MOTOR_R: Option<ActualMotorR<'_>> = None;
 pub static mut GL_MOTOR_L: Option<ActualMotorL<'_>> = None;
 pub static mut GL_BATTERY: Option<ActualBattery> = None;
+pub static mut GL_PERIODIC_ALARM: Option<Alarm<Periodic, 0>> = None;
 
-const TIMER_INTERVAL: u64 = 1u64; // ms
-
-struct InterruptContext {
-    step: u32,
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum WallDetectionSequence {
+    ReadBattEnableLs,
+    ReadLsEnableLf,
+    ReadLfEnableRf,
+    ReadRfEnableRs,
+    ReadRsDisable,
+    ReadImu,
+    ReadEncoders,
+    Control,
+    Noop,
 }
 
-static INTERRUPT_CONTEXT: Option<InterruptContext> = None;
+const SEQUENCE: [WallDetectionSequence; 10] = [
+    WallDetectionSequence::ReadBattEnableLs,
+    WallDetectionSequence::ReadLsEnableLf,
+    WallDetectionSequence::ReadLfEnableRf,
+    WallDetectionSequence::ReadRfEnableRs,
+    WallDetectionSequence::ReadRsDisable,
+    WallDetectionSequence::ReadImu,
+    WallDetectionSequence::ReadEncoders,
+    WallDetectionSequence::Control,
+    WallDetectionSequence::Noop,
+    WallDetectionSequence::Noop,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InterruptContext {
+    pub step: u8,
+    pub motor: Option<[i16; 2]>,
+    pub led: [bool; 3],
+    pub front_sensors: bool,
+    pub side_sensors: bool,
+}
+
+pub static mut GL_INTERRUPT_CONTEXT: Option<InterruptContext> = None;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SensorData {
+    pub wall_sensors: [u16; 4],
+    pub encoders: [u16; 2],
+    pub gyro_yaw: i16,
+    pub battery: f32,
+}
+
+pub static mut GL_SENSOR_DATA: Option<SensorData> = None;
 
 #[entry]
 fn main() -> ! {
@@ -94,7 +133,6 @@ fn main() -> ! {
         &clocks,
         &mut system.peripheral_clock_control,
     );
-    let mut timer00 = timer_group0.timer0;
     let mut wdt0 = timer_group0.wdt;
 
     let mut rtc = Rtc::new(peripherals.RTC_CNTL);
@@ -277,80 +315,132 @@ fn main() -> ! {
     let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
 
     /******** Initialize Console ********/
-    let mut console = console::Console::new();
+    let mut console: console::Console<'_, Uart<'_, UART0>> = console::Console::new();
+
+    /******** Initialize timer interrupt ********/
+    // Set up the interrupt context
+    unsafe {
+        GL_INTERRUPT_CONTEXT = Some(InterruptContext {
+            step: 0,
+            motor: None,
+            led: [false, false, false],
+            front_sensors: false,
+            side_sensors: false,
+        });
+    }
+    unsafe {
+        GL_SENSOR_DATA = Some(SensorData {
+            wall_sensors: [0, 0, 0, 0],
+            encoders: [0, 0],
+            gyro_yaw: 0,
+            battery: 0.0,
+        });
+    }
+
+    // Set up the interrupt
+    let syst = SystemTimer::new(peripherals.SYSTIMER);
+
+    let periodic_alarm = syst.alarm0.into_periodic();
+    periodic_alarm.set_period(10u32.kHz());
+    periodic_alarm.interrupt_enable(true);
+    unsafe {
+        GL_PERIODIC_ALARM = Some(periodic_alarm);
+    }
+
+    interrupt::enable(
+        peripherals::Interrupt::SYSTIMER_TARGET0,
+        Priority::Priority1,
+    )
+    .unwrap();
 
     /******** Main loop ********/
     console.run(&mut serial0);
 
-    let raising = 100u32;
-    loop {
-        // Display wall sensor values
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().enable(LF);
+    unreachable!();
+}
+
+#[interrupt]
+fn SYSTIMER_TARGET0() {
+    let step = unsafe { GL_INTERRUPT_CONTEXT.as_mut().unwrap().step };
+    unsafe {
+        GL_INTERRUPT_CONTEXT.as_mut().unwrap().step = (step + 1) % 10;
+    }
+
+    match SEQUENCE[step as usize] {
+        WallDetectionSequence::ReadBattEnableLs => {
+            unsafe {
+                GL_SENSOR_DATA.as_mut().unwrap().battery = GL_BATTERY.as_mut().unwrap().read_mv();
+            }
+            unsafe {
+                if GL_INTERRUPT_CONTEXT.as_ref().unwrap().side_sensors {
+                    GL_WALL_SENSORS.as_mut().unwrap().enable(LS);
+                } else {
+                    GL_WALL_SENSORS.as_mut().unwrap().disable();
+                }
+            }
         }
-        unsafe {
-            GL_DELAY.as_mut().unwrap().delay_us(raising);
-        }
-        let lf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LF) };
-        unsafe {
+
+        WallDetectionSequence::ReadLsEnableLf => unsafe {
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().side_sensors {
+                GL_SENSOR_DATA.as_mut().unwrap().wall_sensors[LS as usize] =
+                    GL_WALL_SENSORS.as_mut().unwrap().read(LS);
+            }
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().front_sensors {
+                GL_WALL_SENSORS.as_mut().unwrap().enable(LF);
+            } else {
+                GL_WALL_SENSORS.as_mut().unwrap().disable();
+            }
+        },
+
+        WallDetectionSequence::ReadLfEnableRf => unsafe {
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().front_sensors {
+                GL_SENSOR_DATA.as_mut().unwrap().wall_sensors[LF as usize] =
+                    GL_WALL_SENSORS.as_mut().unwrap().read(LF);
+            }
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().front_sensors {
+                GL_WALL_SENSORS.as_mut().unwrap().enable(RF);
+            } else {
+                GL_WALL_SENSORS.as_mut().unwrap().disable();
+            }
+        },
+
+        WallDetectionSequence::ReadRfEnableRs => unsafe {
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().front_sensors {
+                GL_SENSOR_DATA.as_mut().unwrap().wall_sensors[RF as usize] =
+                    GL_WALL_SENSORS.as_mut().unwrap().read(RF);
+            }
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().side_sensors {
+                GL_WALL_SENSORS.as_mut().unwrap().enable(RS);
+            } else {
+                GL_WALL_SENSORS.as_mut().unwrap().disable();
+            }
+        },
+
+        WallDetectionSequence::ReadRsDisable => unsafe {
+            if GL_INTERRUPT_CONTEXT.as_ref().unwrap().side_sensors {
+                GL_SENSOR_DATA.as_mut().unwrap().wall_sensors[RS as usize] =
+                    GL_WALL_SENSORS.as_mut().unwrap().read(RS);
+            }
             GL_WALL_SENSORS.as_mut().unwrap().disable();
-        }
+        },
 
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().enable(LS);
-        }
-        unsafe {
-            GL_DELAY.as_mut().unwrap().delay_us(raising);
-        }
-        let ls = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(LS) };
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().disable();
-        }
+        WallDetectionSequence::ReadImu => unsafe {
+            GL_SENSOR_DATA.as_mut().unwrap().gyro_yaw = GL_IMU.as_mut().unwrap().read()
+        },
 
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().enable(RS);
-        }
-        unsafe {
-            GL_DELAY.as_mut().unwrap().delay_us(raising);
-        }
-        let rs = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RS) };
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().disable();
-        }
+        WallDetectionSequence::ReadEncoders => unsafe {
+            GL_SENSOR_DATA.as_mut().unwrap().encoders = [
+                GL_ENCODER.as_mut().unwrap().read_r(),
+                GL_ENCODER.as_mut().unwrap().read_l(),
+            ];
+        },
 
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().enable(RF);
-        }
-        unsafe {
-            GL_DELAY.as_mut().unwrap().delay_us(raising);
-        }
-        let rf = unsafe { GL_WALL_SENSORS.as_mut().unwrap().read(RF) };
-        unsafe {
-            GL_WALL_SENSORS.as_mut().unwrap().disable();
-        }
+        WallDetectionSequence::Control => {}
 
-        println!("LF {:04} LS {:04} RS {:04} RF {:04}", lf, ls, rs, rf);
+        WallDetectionSequence::Noop => {}
+    }
 
-        unsafe {
-            GL_DELAY.as_mut().unwrap().delay_ms(1u32);
-        }
-
-        continue;
-
-        // Display encoder values
-        let encr = unsafe { GL_ENCODER.as_mut().unwrap().read_r() };
-        let encl = unsafe { GL_ENCODER.as_mut().unwrap().read_l() };
-        println!("enc {}, {}", encr, encl);
-
-        // IMU
-        let gyro = unsafe { GL_IMU.as_mut().unwrap().read() };
-
-        let who_am_i = unsafe { GL_IMU.as_mut().unwrap().who_am_i() };
-
-        println!("imu {}, who {:x?}", gyro, who_am_i);
-
-        unsafe {
-            GL_DELAY.as_mut().unwrap().delay_ms(1000u32);
-        }
+    unsafe {
+        GL_PERIODIC_ALARM.as_mut().unwrap().clear_interrupt();
     }
 }

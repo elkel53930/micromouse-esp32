@@ -21,3 +21,14 @@ where
         }
     }
 }
+
+pub fn read_byte<T>(uart: &mut T) -> u8
+where
+    T: Read<u8>,
+{
+    loop {
+        if let Ok(byte) = uart.read() {
+            return byte;
+        }
+    }
+}

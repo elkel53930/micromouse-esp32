@@ -1,26 +1,26 @@
-use crate::uart_read_line::read_line;
-use crate::{log, GL_BATTERY, GL_MOTOR_L, GL_MOTOR_R};
+use crate::read_uart::read_line;
+use crate::{log, GL_BATTERY, GL_INTERRUPT_CONTEXT, GL_MOTOR_L, GL_MOTOR_R, GL_SENSOR_DATA};
 use embedded_hal::serial::Read;
 
 use core::str::FromStr;
 
-const NUM_OF_COMMAND: usize = 3;
-pub struct Console<'a> {
-    commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND],
+const NUM_OF_COMMAND: usize = 4;
+pub struct Console<'a, UART> {
+    commands: [&'a dyn ConsoleCommand<UART>; NUM_OF_COMMAND],
 }
 
-impl<'a> Console<'a> {
-    pub fn new() -> Console<'a> {
-        let commands: [&'a dyn ConsoleCommand; NUM_OF_COMMAND] =
-            [&CmdShowlog {}, &CmdMot {}, &CmtBatt {}];
+impl<'a, UART> Console<'a, UART>
+where
+    UART: Read<u8>,
+{
+    pub fn new() -> Console<'a, UART> {
+        let commands: [&'a dyn ConsoleCommand<UART>; NUM_OF_COMMAND] =
+            [&CmdShowlog {}, &CmdMot {}, &CmtBatt {}, &CmdSen {}];
 
         Console { commands }
     }
 
-    pub fn run<T>(&mut self, uart: &mut T)
-    where
-        T: Read<u8>,
-    {
+    pub fn run(&mut self, uart: &mut UART) {
         esp_println::println!("Welcome to ExtraICE console!");
         loop {
             let mut buf = [0u8; 256];
@@ -58,7 +58,7 @@ impl<'a> Console<'a> {
             let mut found = false;
             for cmd in self.commands.iter_mut() {
                 if cmd.name() == args[0] {
-                    match cmd.execute(&args[1..arg_num], arg_num - 1) {
+                    match cmd.execute(&args[1..arg_num], arg_num - 1, uart) {
                         Ok(_) => {}
                         Err(e) => {
                             esp_println::println!("Error: {}", e);
@@ -76,8 +76,11 @@ impl<'a> Console<'a> {
     }
 }
 
-pub trait ConsoleCommand {
-    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str>;
+pub trait ConsoleCommand<UART>
+where
+    UART: Read<u8>,
+{
+    fn execute(&self, args: &[&str], arg_num: usize, uart: &mut UART) -> Result<(), &'static str>;
     fn hint(&self);
     fn name(&self) -> &str;
 }
@@ -85,12 +88,15 @@ pub trait ConsoleCommand {
 /* showlog command */
 pub struct CmdShowlog {}
 
-fn parse_or_error<T: FromStr>(arg: &str) -> Result<T, &'static str> {
-    arg.parse::<T>().map_err(|_| "Argument parse error")
+fn parse_or_error<UART: FromStr>(arg: &str) -> Result<UART, &'static str> {
+    arg.parse::<UART>().map_err(|_| "Argument parse error")
 }
 
-impl ConsoleCommand for CmdShowlog {
-    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str> {
+impl<UART> ConsoleCommand<UART> for CmdShowlog
+where
+    UART: Read<u8>,
+{
+    fn execute(&self, args: &[&str], arg_num: usize, _: &mut UART) -> Result<(), &'static str> {
         if arg_num == 1 || arg_num == 0 {
             let offset;
 
@@ -134,8 +140,11 @@ impl ConsoleCommand for CmdShowlog {
 /* mot command */
 pub struct CmdMot {}
 
-impl ConsoleCommand for CmdMot {
-    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str> {
+impl<UART> ConsoleCommand<UART> for CmdMot
+where
+    UART: Read<u8>,
+{
+    fn execute(&self, args: &[&str], arg_num: usize, _: &mut UART) -> Result<(), &'static str> {
         if arg_num == 2 {
             let lspeed = parse_or_error(args[0])?;
             let rspeed = parse_or_error(args[1])?;
@@ -158,6 +167,7 @@ impl ConsoleCommand for CmdMot {
         esp_println::println!("Usage: mot [lspeed] [rspeed]");
         esp_println::println!(" lspeed -100 - 100");
         esp_println::println!(" rspeed -100 - 100");
+        esp_println::println!(" To stop motors, call without arguments");
     }
 
     fn name(&self) -> &str {
@@ -168,8 +178,11 @@ impl ConsoleCommand for CmdMot {
 /* batt command */
 pub struct CmtBatt {}
 
-impl ConsoleCommand for CmtBatt {
-    fn execute(&self, args: &[&str], arg_num: usize) -> Result<(), &'static str> {
+impl<UART> ConsoleCommand<UART> for CmtBatt
+where
+    UART: Read<u8>,
+{
+    fn execute(&self, args: &[&str], arg_num: usize, _: &mut UART) -> Result<(), &'static str> {
         if arg_num == 0 {
             let batt = unsafe { GL_BATTERY.as_mut().unwrap().read_mv() };
             esp_println::println!("Battery: {:.3}V", batt);
@@ -190,5 +203,55 @@ impl ConsoleCommand for CmtBatt {
 
     fn name(&self) -> &str {
         "batt"
+    }
+}
+
+/* sen command */
+pub struct CmdSen {}
+
+/* show all sensor's values */
+impl<UART> ConsoleCommand<UART> for CmdSen
+where
+    UART: Read<u8>,
+{
+    fn execute(&self, args: &[&str], arg_num: usize, uart: &mut UART) -> Result<(), &'static str> {
+        if arg_num == 0 {
+            let front_original_state =
+                unsafe { GL_INTERRUPT_CONTEXT.as_mut().unwrap().front_sensors };
+            let side_original_state =
+                unsafe { GL_INTERRUPT_CONTEXT.as_mut().unwrap().side_sensors };
+            unsafe {
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().front_sensors = true;
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().side_sensors = true;
+            }
+            loop {
+                let sensors = unsafe { GL_SENSOR_DATA.as_mut().unwrap().clone() };
+                esp_println::println!(
+                    "WSEN:{:?}, BATT:{:.3}, ENCODERS:{:?}, GYRO:{:4}",
+                    sensors.wall_sensors,
+                    sensors.battery,
+                    sensors.encoders,
+                    sensors.gyro_yaw
+                );
+                if let Ok(byte) = uart.read() {
+                    break;
+                }
+            }
+            unsafe {
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().front_sensors = front_original_state;
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().side_sensors = side_original_state;
+            }
+        } else {
+            return Err("invalid number of arguments");
+        }
+        Ok(())
+    }
+
+    fn hint(&self) {
+        esp_println::println!("Usage: sen");
+    }
+
+    fn name(&self) -> &str {
+        "sen"
     }
 }
