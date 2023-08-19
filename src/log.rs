@@ -20,6 +20,10 @@ pub fn init_logger(i2c: I2C<'static, I2C0>) {
     }
 }
 
+pub fn is_initialized() {
+    unsafe { GL_FRAM_WRITER.is_some() }
+}
+
 pub fn reset_cursor() {
     unsafe {
         GL_FRAM_WRITER.as_mut().unwrap().set_cursor(LOG_HEADER_SIZE);

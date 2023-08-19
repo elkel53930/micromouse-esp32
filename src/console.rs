@@ -15,7 +15,7 @@ where
 {
     pub fn new() -> Console<'a, UART> {
         let commands: [&'a dyn ConsoleCommand<UART>; NUM_OF_COMMAND] =
-            [&CmdShowlog {}, &CmdMot {}, &CmtBatt {}, &CmdSen {}];
+            [&CmdLog {}, &CmdMot {}, &CmtBatt {}, &CmdSen {}];
 
         Console { commands }
     }
@@ -85,14 +85,14 @@ where
     fn name(&self) -> &str;
 }
 
-/* showlog command */
-pub struct CmdShowlog {}
+/* log command */
+pub struct CmdLog {}
 
 fn parse_or_error<UART: FromStr>(arg: &str) -> Result<UART, &'static str> {
     arg.parse::<UART>().map_err(|_| "Argument parse error")
 }
 
-impl<UART> ConsoleCommand<UART> for CmdShowlog
+impl<UART> ConsoleCommand<UART> for CmdLog
 where
     UART: Read<u8>,
 {
@@ -129,11 +129,11 @@ where
     }
 
     fn hint(&self) {
-        esp_println::println!("Usage: showlog [bytes]");
+        esp_println::println!("Usage: log [bytes]");
     }
 
     fn name(&self) -> &str {
-        "showlog"
+        "log"
     }
 }
 
