@@ -5,7 +5,7 @@ use esp_backtrace as _;
 use esp_println::println;
 use hal::{
     adc::{AdcConfig, AdcPin, Attenuation, ADC, ADC1},
-    clock::ClockControl,
+    clock::{ClockControl, CpuClock},
     gpio::{Analog, GpioPin, Output, PushPull, Unknown, IO},
     i2c::I2C,
     interrupt::{self, Priority},
@@ -86,7 +86,7 @@ static INTERRUPT_CONTEXT: Option<InterruptContext> = None;
 fn main() -> ! {
     let peripherals = Peripherals::take();
     let mut system = peripherals.SYSTEM.split();
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    let clocks = ClockControl::configure(system.clock_control, CpuClock::Clock240MHz).freeze();
 
     // Disable the TIMG watchdog timer.
     let timer_group0 = TimerGroup::new(
