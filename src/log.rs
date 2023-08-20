@@ -20,7 +20,7 @@ pub fn init_logger(i2c: I2C<'static, I2C0>) {
     }
 }
 
-pub fn is_initialized() {
+pub fn is_initialized() -> bool {
     unsafe { GL_FRAM_WRITER.is_some() }
 }
 
