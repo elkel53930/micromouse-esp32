@@ -1,5 +1,3 @@
-use core::f32::consts::E;
-
 use esp_backtrace as _;
 
 use crate::peripheral_traits::AdConverter;

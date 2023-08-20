@@ -96,7 +96,7 @@ impl<UART> ConsoleCommand<UART> for CmdLog
 where
     UART: Read<u8>,
 {
-    fn execute(&self, args: &[&str], arg_num: usize, _: &mut UART) -> Result<(), &'static str> {
+    fn execute(&self, args: &[&str], arg_num: usize, _uart: &mut UART) -> Result<(), &'static str> {
         if arg_num == 1 || arg_num == 0 {
             let offset;
 
@@ -144,7 +144,7 @@ impl<UART> ConsoleCommand<UART> for CmdMot
 where
     UART: Read<u8>,
 {
-    fn execute(&self, args: &[&str], arg_num: usize, _: &mut UART) -> Result<(), &'static str> {
+    fn execute(&self, args: &[&str], arg_num: usize, _uart: &mut UART) -> Result<(), &'static str> {
         if arg_num == 2 {
             let lspeed = parse_or_error(args[0])?;
             let rspeed = parse_or_error(args[1])?;
@@ -182,7 +182,7 @@ impl<UART> ConsoleCommand<UART> for CmtBatt
 where
     UART: Read<u8>,
 {
-    fn execute(&self, args: &[&str], arg_num: usize, _: &mut UART) -> Result<(), &'static str> {
+    fn execute(&self, _args: &[&str], arg_num: usize, _uart: &mut UART) -> Result<(), &'static str> {
         if arg_num == 0 {
             let batt = unsafe { GL_BATTERY.as_mut().unwrap().read_mv() };
             esp_println::println!("Battery: {:.3}V", batt);
@@ -214,7 +214,7 @@ impl<UART> ConsoleCommand<UART> for CmdSen
 where
     UART: Read<u8>,
 {
-    fn execute(&self, args: &[&str], arg_num: usize, uart: &mut UART) -> Result<(), &'static str> {
+    fn execute(&self, _args: &[&str], arg_num: usize, uart: &mut UART) -> Result<(), &'static str> {
         if arg_num == 0 {
             let front_original_state =
                 unsafe { GL_INTERRUPT_CONTEXT.as_mut().unwrap().front_sensors };
@@ -233,7 +233,7 @@ where
                     sensors.encoders,
                     sensors.gyro_yaw
                 );
-                if let Ok(byte) = uart.read() {
+                if let Ok(_byte) = uart.read() {
                     break;
                 }
             }

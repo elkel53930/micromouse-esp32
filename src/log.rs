@@ -1,11 +1,8 @@
 use crate::peripheral_traits;
-use crate::peripheral_traits::RandomAccessMemory;
 use core::fmt::{self, Write};
 use esp_backtrace as _;
 
 use crate::fram;
-use core::cell::RefCell;
-use critical_section::{with, Mutex};
 use hal::{i2c::I2C, peripherals::I2C0};
 
 const LOG_HEADER_SIZE: u16 = 2;
