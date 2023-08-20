@@ -305,7 +305,7 @@ fn main() -> ! {
 
     // Motor sleep
     let mut motor_sleep = io.pins.gpio38.into_push_pull_output();
-    motor_sleep.set_high().unwrap(); // Enable
+    motor_sleep.set_low().unwrap(); // Disable
 
     unsafe {
         GL_MOTOR_R = Some(motor::Motor::new(pwm_r, cwccw_r));
@@ -313,6 +313,8 @@ fn main() -> ! {
         GL_MOTOR_R.as_mut().unwrap().set_duty(0);
         GL_MOTOR_L.as_mut().unwrap().set_duty(0);
     }
+
+    motor_sleep.set_high().unwrap(); // Enable
 
     /******** Initialize serial port ********/
     let mut serial0 = Uart::new(peripherals.UART0, &mut system.peripheral_clock_control);
