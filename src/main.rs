@@ -85,6 +85,7 @@ enum WallDetectionSequence {
     ReadEncoders,
     Control,
     Noop,
+    Etc,
 }
 
 const SEQUENCE: [WallDetectionSequence; 10] = [
@@ -97,14 +98,16 @@ const SEQUENCE: [WallDetectionSequence; 10] = [
     WallDetectionSequence::ReadEncoders,
     WallDetectionSequence::Control,
     WallDetectionSequence::Noop,
-    WallDetectionSequence::Noop,
+    WallDetectionSequence::Etc,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InterruptContext {
     pub step: u8,
+    pub one_second_counter: u16,
+
     pub motor: Option<[i16; 2]>,
-    pub led: [bool; 3],
+    pub led_pattern: [Option<&'static str>; 3],
     pub front_sensors: bool,
     pub side_sensors: bool,
 }
@@ -322,8 +325,9 @@ fn main() -> ! {
     unsafe {
         GL_INTERRUPT_CONTEXT = Some(InterruptContext {
             step: 0,
+            one_second_counter: 0,
             motor: None,
-            led: [false, false, false],
+            led_pattern: [None, None, None],
             front_sensors: false,
             side_sensors: false,
         });
@@ -438,6 +442,25 @@ fn SYSTIMER_TARGET0() {
         WallDetectionSequence::Control => {}
 
         WallDetectionSequence::Noop => {}
+
+        WallDetectionSequence::Etc => {
+            unsafe {
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().one_second_counter =
+                    (GL_INTERRUPT_CONTEXT.as_mut().unwrap().one_second_counter + 1) % 1000;
+            }
+
+            if unsafe { GL_INTERRUPT_CONTEXT.as_ref().unwrap().one_second_counter } % 100 == 0 {
+                let led_pattern =
+                    unsafe { GL_INTERRUPT_CONTEXT.as_ref().unwrap().led_pattern.clone() };
+                unsafe {
+                    GL_LED.as_mut().unwrap().pattern(
+                        led_pattern[0].unwrap_or("0"),
+                        led_pattern[1].unwrap_or("0"),
+                        led_pattern[2].unwrap_or("0"),
+                    );
+                }
+            }
+        }
     }
 
     unsafe {

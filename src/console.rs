@@ -1,3 +1,4 @@
+use crate::peripheral::led::LED;
 use crate::read_uart::read_line;
 use crate::{log, GL_BATTERY, GL_INTERRUPT_CONTEXT, GL_MOTOR_L, GL_MOTOR_R, GL_SENSOR_DATA};
 use embedded_hal::serial::Read;
@@ -28,6 +29,12 @@ where
             let mut arg_num = 0;
             let mut len = 0;
             esp_println::print!("> ");
+            unsafe {
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().led_pattern[LED::Green as usize] =
+                    Some("0011");
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().led_pattern[LED::Red as usize] = None;
+                GL_INTERRUPT_CONTEXT.as_mut().unwrap().led_pattern[LED::Blue as usize] = None;
+            }
             read_line(uart, &mut buf);
 
             while buf[len] != 0 {
@@ -58,6 +65,12 @@ where
             let mut found = false;
             for cmd in self.commands.iter_mut() {
                 if cmd.name() == args[0] {
+                    unsafe {
+                        GL_INTERRUPT_CONTEXT.as_mut().unwrap().led_pattern[LED::Green as usize] =
+                            None;
+                        GL_INTERRUPT_CONTEXT.as_mut().unwrap().led_pattern[LED::Red as usize] =
+                            Some("01");
+                    }
                     match cmd.execute(&args[1..arg_num], arg_num - 1, uart) {
                         Ok(_) => {}
                         Err(e) => {
@@ -182,7 +195,12 @@ impl<UART> ConsoleCommand<UART> for CmtBatt
 where
     UART: Read<u8>,
 {
-    fn execute(&self, _args: &[&str], arg_num: usize, _uart: &mut UART) -> Result<(), &'static str> {
+    fn execute(
+        &self,
+        _args: &[&str],
+        arg_num: usize,
+        _uart: &mut UART,
+    ) -> Result<(), &'static str> {
         if arg_num == 0 {
             let batt = unsafe { GL_BATTERY.as_mut().unwrap().read_mv() };
             esp_println::println!("Battery: {:.3}V", batt);
